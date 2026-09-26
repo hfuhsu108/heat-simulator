@@ -1,0 +1,5 @@
+# Claude Design 的設計稿只留本機當視覺參考，不進版控
+design_handoff/
+
+# 一次性的備份、診斷與對照檔，裁決後即刪
+tmp/
