@@ -7,7 +7,7 @@ import {dirname, join} from 'node:path';
 const html = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.html'), 'utf8');
 const m = html.match(/\/\* ═══ PHYSICS BEGIN ═══[\s\S]*?\*\/([\s\S]*?)\/\* ═══ PHYSICS END ═══ \*\//);
 if (!m) { console.error('找不到 PHYSICS BEGIN／END 標記'); process.exit(1); }
-const P = new Function(m[1] + '\nreturn {SPEC_HEAT, MAX_T, POWER, K1, t1At, dAt, sDT, sCapT, P3B, P3T, p3, vT, solidScale, liquidScale};')();
+const P = new Function(m[1] + '\nreturn {SPEC_HEAT, MAX_T, POWER, K1, t1At, dAt, sDT, sCapT, P3B, P3T, p3, vT, solidScale, liquidScale, E_OFF, chunkCounts, chunkCount, POWER, CHUNK_CAL, X_RATE, xRatio, xSpeed, X_N, X_SP, X_HOLE, xLattice};')();
 
 let fail = 0, pass = 0;
 function ok(cond, msg){ if (cond) pass++; else { fail++; console.error('✗ ' + msg); } }
@@ -81,6 +81,66 @@ ok(P.vT(at(9.5).T) > P.vT(at(4.5).T), 'p3：液態升溫期粒子速率變快');
 ok(near(P.solidScale(-20), 1) && near(P.solidScale(0), 1.08), '膨脹：固態 −20→0 °C 間距放大 8%');
 ok(near(P.liquidScale(0), 1) && near(P.liquidScale(100), 1.2), '膨脹：液態 0→100 °C 高度放大 20%');
 ok(P.solidScale(at(1).T) === P.solidScale(at(4).T), '膨脹：熔化平台間距不動（C14）');
+
+/* ── 能量塊（D81、C40） ── */
+{
+  const offs = Object.values(P.E_OFF);
+  ok(new Set(offs).size === offs.length, '能量塊：各物質起算量不同，不存在讓所有物質同時歸零的溫度');
+  for (const ma of mats) for (const mb of mats) for (const Ma of masses) for (const Mb of masses){
+    const [a, b] = P.chunkCounts({mat:ma, mass:Ma, T:0}, {mat:mb, mass:Mb, T:0});
+    ok(a >= 1 && b >= 1, `能量塊：${Ma}g${ma}、${Mb}g${mb} 都在 0 °C 時兩邊仍各有塊（${a}/${b}）`);
+    // 雙槽整輪：兩邊塊數和不變、熱的一邊只減不增
+    const o = {A:{mat:ma, mass:Ma, T0:80}, B:{mat:mb, mass:Mb, T0:20}};
+    const cnt = t => { const r = P.dAt(o, t); return P.chunkCounts({mat:ma, mass:Ma, T:r.TA}, {mat:mb, mass:Mb, T:r.TB}); };
+    const n0 = cnt(0);
+    let prev = n0[0], mono = true, cons = true;
+    for (let t = 0.25; t <= 20; t += 0.25){ const n = cnt(t); if (n[0] > prev) mono = false; if (n[0] + n[1] !== n0[0] + n0[1]) cons = false; prev = n[0]; }
+    ok(cons, `能量塊：${Ma}g${ma}＋${Mb}g${mb} 傳熱過程兩邊塊數和不變`);
+    ok(mono, `能量塊：${Ma}g${ma}＋${Mb}g${mb} 熱的一邊塊數只減不增`);
+  }
+  // 熱平衡頁預設：100 g 水 80 °C＋100 g 水 20 °C → 10／4 塊，平衡 50 °C 各 7 塊，看得到 3 塊移動
+  const w = T => ({mat:'水', mass:100, T});
+  const s0 = P.chunkCounts(w(80), w(20)), sE = P.chunkCounts(w(50), w(50));
+  ok(s0[0] === 10 && s0[1] === 4 && sE[0] === 7 && sE[1] === 7, `能量塊：熱平衡頁預設 ${s0} → ${sE} 應為 10,4 → 7,7`);
+  // 最多的一塊方塊（300 g 水 100 °C）36 塊，1366 寬時方塊 15×3 格放得下
+  ok(P.chunkCounts({mat:'水', mass:300, T:100}, {mat:'水', mass:300, T:100})[0] === 36, '能量塊：300 g 水 100 °C 為 36 塊');
+}
+/* ── 單槽能量塊（D98）：加熱只增不減，多出的塊數對得上火焰送進的熱量 ── */
+for (const ma of mats) for (const M of masses){
+  const C = M * P.SPEC_HEAT[ma], cap = P.sCapT(C), n = t => P.chunkCount({mat:ma, mass:M, T:20 + P.sDT(C, t)});
+  ok(n(0) >= 1, `單槽能量塊：${M}g${ma} 起始 20 °C 至少 1 塊（${n(0)}）`);
+  let mono = true;
+  for (let t = 0.1; t <= cap + 1e-9; t += 0.1) if (n(t) < n(t - 0.1)) mono = false;
+  ok(mono, `單槽能量塊：${M}g${ma} 加熱中塊數只增不減`);
+  const added = n(cap) - n(0), heat = P.POWER * cap / P.CHUNK_CAL;
+  ok(Math.abs(added - heat) <= 1, `單槽能量塊：${M}g${ma} 多出 ${added} 塊，火焰送進 ${heat.toFixed(2)} 塊的熱量，差距應 ≤ 1`);
+}
+
+/* ── 熱脹冷縮（D125、D138）：膨脹量 氣＞液＞固、隨滑桿單調、粒子數不隨滑桿變、孔與方塊同比例 ── */
+{
+  const R = P.X_RATE;
+  ok(R.g > R.l && R.l > R.s && R.s > 0, `熱脹冷縮：最高溫增加率應 氣 ${R.g} ＞ 液 ${R.l} ＞ 固 ${R.s} ＞ 0`);
+  for (const ph of ['s', 'l', 'g']){
+    ok(P.xRatio(ph, 0) === 0, `熱脹冷縮 ${ph}：低溫時增加率應為 0`);
+    ok(near(P.xRatio(ph, 1), R[ph]), `熱脹冷縮 ${ph}：最高溫增加率應為 X_RATE`);
+    let mono = true;
+    for (let i = 1; i <= 100; i++) if (P.xRatio(ph, i / 100) < P.xRatio(ph, (i - 1) / 100)) mono = false;
+    ok(mono, `熱脹冷縮 ${ph}：增加率隨滑桿單調不減`);
+  }
+  let order = true;
+  for (let i = 1; i <= 100; i++){ const lv = i / 100; if (!(P.xRatio('g', lv) > P.xRatio('l', lv) && P.xRatio('l', lv) > P.xRatio('s', lv))) order = false; }
+  ok(order, '熱脹冷縮：滑桿任一位置（低溫除外）都應 氣＞液＞固');
+  ok(P.xSpeed(0) === P.vT(-20) && P.xSpeed(1) === P.vT(120), '熱脹冷縮：粒子速率範圍應與三態變化頁 −20～120 °C 相同（C53）');
+  // 粒子數只由「有沒有挖孔」決定：xLattice 不吃滑桿，升溫只把位置乘同一倍率
+  const full = P.xLattice(false), holed = P.xLattice(true);
+  ok(full.length === P.X_N * P.X_N, `熱脹冷縮：沒挖孔應 ${P.X_N * P.X_N} 顆（${full.length}）`);
+  ok(holed.length === 72, `熱脹冷縮：挖孔後應拿掉中央 9 顆、剩 72 顆（${holed.length}）`);
+  // 剩下的粒子連同半徑都在孔外（不壓到孔緣）：距中心 − 粒子半徑 ≥ 孔半徑；位置與孔同乘 k，任何溫度都成立
+  const clear = Math.min(...holed.map(q => Math.hypot(q.x, q.y) - 1 / P.X_SP));
+  ok(clear >= P.X_HOLE, `熱脹冷縮：最靠近孔的粒子邊緣 ${clear.toFixed(3)} 格應 ≥ 孔半徑 ${P.X_HOLE}`);
+  // 孔半徑＝方陣邊長的 1/6，與畫布上方塊的孔（H0／6）同比例
+  ok(near(P.X_HOLE / P.X_N, 1 / 6), '熱脹冷縮：孔半徑應為方陣邊長的 1/6，與實體方塊同比例');
+}
 
 console.log(`${pass} 通過，${fail} 失敗`);
 process.exit(fail ? 1 : 0);

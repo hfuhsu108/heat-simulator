@@ -33,7 +33,9 @@
   --c-ok:#24794C;
   --c-warn:#C62F2F;
   --c-slider-bg:#D3D9E1;   /* 滑桿未填軌底。唯一定義處 */
-  --c-off:#A6AEBA;         /* 停用中的步進器端鈕圖示 */
+  /* 停用態的圖示與字（DESIGN_SPEC 第 4 節「按鈕」，2026-10-08 第三輪 C11）：逐字搬 _shared/template/index.html:42-44。
+     取代原本步進器端鈕專用的 --c-off #A6AEBA */
+  --c-disabled:var(--c-bd-ctl);
 }
 
 /* ═══ 2. base：字體、上下標、觸控（DEV_SPEC 第 3、4、5 節） ═══ */
@@ -68,7 +70,7 @@ button:disabled:active{transform:none;filter:none}
 
 /* ═══ 3. 版面：Header / 三欄 / 抽屜 / 導覽列 ═══
    熱平衡、比熱：三欄 1 : 1.5 : 1.5（PROJECT_PLAN §1，本模擬專用，不回流）。
-   熱與粒子：左欄＋右側上下 1 : 1（D33），好讓加熱曲線橫向拉得夠長。
+   三態變化：左欄＋右側上下 1 : 1（D33），好讓加熱曲線橫向拉得夠長。
    欄寬一律寫 minmax(0, …)：抽屜的時間軸要與圖表 t 軸對齊，欄寬不能被內容撐開。 */
 .app{
   height:100vh;   /* fallback */
@@ -87,6 +89,9 @@ main{flex:1;position:relative;display:grid;grid-template-columns:minmax(0,1fr) m
 .app[data-page="p"] .panel{grid-column:1;grid-row:1 / span 2}
 .app[data-page="p"] .stage{grid-column:2;grid-row:1}
 .app[data-page="p"] .chartcol{grid-column:2;grid-row:2}
+/* 熱脹冷縮：兩欄 1 : 3、沒有右欄（D130），資訊卡放畫布內；抽屜照樣在，三鈕 disabled（D137） */
+.app[data-page="x"] main{grid-template-columns:minmax(0,1fr) minmax(0,3fr)}
+.app[data-page="x"] .chartcol{display:none}
 
 /* 左欄是透明的直排容器，裡面是無標題白卡（DESIGN_SPEC 第 1 節「左欄的兩張卡片」） */
 .panel{display:flex;flex-direction:column;gap:12px;min-width:0;overflow-y:auto}
@@ -102,36 +107,78 @@ main{flex:1;position:relative;display:grid;grid-template-columns:minmax(0,1fr) m
 .btn.primary{background:var(--c-primary);border-color:var(--c-primary);color:#fff}
 .btn-resetall{flex:none}
 
-.stage{position:relative;border-radius:10px;border:1px solid #C4D3E8;overflow:hidden;min-width:0;min-height:0;background:var(--c-surface)}
+/* 畫布欄外框走 --c-bd（DESIGN_SPEC 第 1 節，2026-10-08 第三輪 E1，同 _shared/template/index.html:140；原本寫死 #C4D3E8） */
+.stage{position:relative;border-radius:10px;border:1px solid var(--c-bd);overflow:hidden;min-width:0;min-height:0;background:var(--c-surface)}
 .stage canvas,.chartcol canvas{position:absolute;inset:0;width:100%;height:100%}
-/* 單槽模式畫布左下讀數（D32：沒有時間軸，已加熱時間與 H 由這裡呈現）。放 HTML 圖層，不畫進 canvas（DEV_SPEC 4.4） */
-.stage-readout{position:absolute;left:10px;bottom:10px;max-width:46%;display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px;
-  white-space:nowrap;background:var(--c-surface);border:1px solid var(--c-bd);border-radius:6px;padding:3px 10px;
-  font-size:calc(12px * var(--u));color:var(--c-text-2);font-variant-numeric:tabular-nums}
-.stage-readout b{color:var(--c-text)}
+/* 資訊卡（D69、D103）：三個畫面各一張，放右欄底部、寬度佔滿右欄。
+   窄版（<900，圖表收進浮出面板）只有單槽退回模擬區左下，否則平常看不到已加入熱量（C34）。
+   是 main 的直接子元素、絕對定位，位置由 placeCards() 依實測座標寫入；放 HTML 圖層，不畫進 canvas（DEV_SPEC 4.4）。
+   以下五條逐字搬自光學模擬 .infocard／.g／.k／.pos／.nat（optics-sim/index.html:282-292），
+   只拿掉光學的 left／bottom／width（這裡由 JS 寫入）並補 z-index；數字的等寬由 span.num-val 負責，不改 .pos */
+.infocard{position:absolute;z-index:2;background:var(--c-surface);
+  border:1px solid var(--c-bd);border-radius:10px;padding:10px 12px;
+  display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.infocard .g{display:flex;flex-direction:column;gap:1px}
+.infocard .k{font-size:calc(12px * var(--u));font-weight:700;color:var(--c-text-3);white-space:nowrap}
+.infocard .pos{font-size:calc(17px * var(--u));font-weight:700;color:var(--c-text);white-space:nowrap}
+.infocard .nat{display:flex;align-items:center;gap:8px;font-size:calc(20px * var(--u));
+  font-weight:700;color:var(--c-text);white-space:nowrap}
+/* 水位模型說明卡（D99）：水槽區左下，標題＋三行直排；位置由 fitAll() 寫入 top，
+   水槽 0 °C 線往上讓出它的高度（tankGeo 讀 noteH），卡片落在開孔下方，不蓋到液面與開孔。
+   熱平衡頁只留「高度＝溫度」（D100），後兩行 .full 收成 0 高但仍佔寬度——兩頁卡寬因此由同一份內容決定 */
+.model-note{position:absolute;left:10px;top:0;z-index:1;background:var(--c-surface);
+  border:1px solid var(--c-bd);border-radius:10px;padding:5px 10px;display:flex;flex-direction:column;
+  font-size:calc(12px * var(--u));color:var(--c-text-2);line-height:1.4;white-space:nowrap;pointer-events:none}
+.model-note .mt{color:var(--c-text);font-weight:700}
+.model-note b{color:var(--c-text);font-weight:700}
+.model-note.one .full{height:0;overflow:hidden;visibility:hidden}
 .stage-cap{position:absolute;right:10px;top:10px;white-space:nowrap;background:var(--c-surface);border:1px solid var(--c-bd);border-radius:6px;
   padding:4px 10px;font-size:calc(12px * var(--u));color:var(--c-text-2)}
 .chartcol{position:relative;min-width:0;min-height:0;background:var(--c-surface);border:1px solid var(--c-bd);border-radius:10px;overflow:hidden}
 
-.drawer{flex:none;margin:12px 14px;background:var(--c-surface);border:1px solid var(--c-bd);border-radius:12px;padding:10px 20px 12px;
-  box-shadow:0 -4px 12px rgba(28,36,51,.05);display:grid;grid-template-columns:minmax(0,1fr);row-gap:8px;align-items:center}
-/* 熱與粒子：抽屜切成與 main 同比例的兩格，右格放時間軸，與下方圖表的 t 軸對齊（D33）。
-   左右 padding 移到格子裡，兩格的邊界才會落在 main 的欄線上 */
-.app[data-page="p"] .drawer{grid-template-columns:minmax(0,1fr) minmax(0,3fr);column-gap:12px;padding:10px 0 12px}
-/* 左 padding 與間距照設計稿（14／8）：用模板的 20／20，1366 寬時左格 311px 裝不下 326px 的一列而折行，
-   D53 只允許 ≤1024 折兩列 */
-.app[data-page="p"] .drawer .row{padding-left:14px;column-gap:8px}
-.drawer .row{display:flex;align-items:center;gap:12px 20px;flex-wrap:wrap;min-width:0}
+/* 抽屜三頁共用同一個版型（D89）：切成與 main 同比例的兩格（左欄寬｜其餘），右格放時間軸，
+   與下方圖表的 t 軸對齊（D33）。熱平衡、比熱沒有時間軸（D32），那一格 visibility:hidden 佔位——
+   三頁的抽屜高度與播放列位置因此由同一套版面決定，不必各自對數字（D72 的橫移也一併根除）。
+   左右 padding 移到格子裡，兩格的邊界才會落在 main 的欄線上；播放列 14／8 是三態變化頁的設計稿值 */
+.drawer{flex:none;margin:12px 14px;background:var(--c-surface);border:1px solid var(--c-bd);border-radius:12px;padding:10px 0 12px;
+  box-shadow:0 -4px 12px rgba(28,36,51,.05);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,3fr);column-gap:12px;row-gap:8px;align-items:center}
+.drawer .row{display:flex;align-items:center;gap:12px 8px;flex-wrap:wrap;min-width:0;padding-left:14px}
+.tl.off{visibility:hidden}
 .playbtns{display:flex;gap:8px;flex:none}
-.round-btn{width:44px;height:44px;border-radius:50%;background:var(--c-bg);border:1px solid var(--c-bd-ctl);color:var(--c-text-2);display:flex;align-items:center;justify-content:center;font-size:calc(15px * var(--u))}
-.round-btn.primary{background:var(--c-primary);border-color:var(--c-primary);color:#fff;font-size:calc(17px * var(--u))}
+/* 圓鈕圖示固定 15／17px、不乘 --u（2026-10-08 第三輪 T3，同 _shared/template/index.html:194-195） */
+.round-btn{width:44px;height:44px;border-radius:50%;background:var(--c-bg);border:1px solid var(--c-bd-ctl);color:var(--c-text-2);display:flex;align-items:center;justify-content:center;font-size:15px}
+.round-btn.primary{background:var(--c-primary);border-color:var(--c-primary);color:#fff;font-size:17px}
 .speed{display:flex;align-items:center;gap:10px;flex:none}
 .speed .seg{width:auto;flex:none}
+/* 抽屜的速度區段回到 min-width 56／內距 14（2026-10-08 第三輪 B29，同 _shared/template/index.html:214、optics-sim:178）；
+   左欄 .seg 的 flex:1／min-width:0 不適用於抽屜 */
+.speed .seg button{flex:1 0 auto;min-width:56px;padding:0 14px}
 .speed .name{font-size:calc(13px * var(--u));color:var(--c-text-2);font-weight:700;flex:none}
-.mobile-tabs{display:none;gap:12px;flex:none;margin-left:auto}
-/* 時間軸：left／width 由 JS 依圖表 t 軸實測後寫入（positionTimeline），不在這裡寫死 */
-.tl{position:relative;height:44px;min-width:0}
-.tl input{position:absolute;top:0;left:20px;width:calc(100% - 40px)}
+/* 兩顆 chip 間距 8（2026-10-08 第三輪 B30，同 template；原本 12） */
+.mobile-tabs{display:none;gap:8px;flex:none;margin-left:auto}
+/* 時間軸：#tlBody 的 margin-left／width 由 JS 依圖表 t 軸實測後寫入（positionTimeline），不在這裡寫死。
+   標題列、刻度、數字列逐字搬自運動學模擬（motion-graphs-sim/index.html:313-331，D73）；
+   把手半徑換成本模擬滑桿的 12px（THUMB 24 的一半），軌道與把手沿用本模擬的參數滑桿 */
+.tl{position:relative;min-width:0;--thumb-half:12px}
+.scrubbox{margin-left:20px;width:calc(100% - 40px)}
+.scrubbox .head{display:flex;align-items:baseline;gap:8px;font-size:calc(13px * var(--u));line-height:1.2}
+.scrubbox .head .name{font-weight:700;color:var(--c-text-2)}
+.scrubbox .head .now{margin-left:auto;font-weight:700;color:var(--c-primary);font-size:calc(15px * var(--u));white-space:nowrap}
+.scrub-wrap{position:relative;height:26px;display:flex;align-items:center}
+/* 感應高度仍是 44px（鐵律 6），上下各吃掉 9px 版面，視覺上只佔 26px（同運動學的 .range-lg） */
+.scrub-wrap input{position:relative;z-index:2;margin:-9px 0}
+.scrub-ticks{position:absolute;top:0;bottom:0;left:var(--thumb-half);right:var(--thumb-half);pointer-events:none;z-index:1}
+.scrub-ticks i{position:absolute;top:50%;transform:translate(-50%,-50%);width:2px;height:16px;background:#A2ABB8}
+.scrub-ticks i.passed{background:rgba(255,255,255,.7)}
+/* 出界之後的時段：斜線底表示「這段跑不到」，不是單純的灰色軌道 */
+.scrub-blocked{position:absolute;top:50%;right:var(--thumb-half);transform:translateY(-50%);height:14px;z-index:3;
+  pointer-events:none;border-radius:0 7px 7px 0;display:none;
+  background:repeating-linear-gradient(135deg,#DDE1E7 0 4px,#EEF0F3 4px 8px)}
+.scrub-blocked.on{display:block}
+/* 數字列：運動學用 space-between（6 個標籤），這裡 9 個標籤寬度不一，space-between 會讓中間的數字
+   偏離刻度線好幾 px，正上方就是圖表 t 軸、偏差看得出來 → 改成逐個定位在刻度中心（這一條是改寫，不是照搬） */
+.scrubbox .marks{position:relative;height:calc(13.2px * var(--u));font-size:calc(12px * var(--u));color:var(--c-text-3);line-height:1.1;margin:3px var(--thumb-half) 0}
+.scrubbox .marks span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
 
 .bottomnav{height:56px;flex:none;display:flex;align-items:center;padding:0 18px;background:var(--c-nav);gap:10px}
 .navtab{white-space:nowrap;flex:none;height:38px;padding:0 18px;border-radius:8px;color:var(--c-nav-idle);font-size:calc(13.5px * var(--u));display:flex;align-items:center}
@@ -143,8 +190,11 @@ main{flex:1;position:relative;display:grid;grid-template-columns:minmax(0,1fr) m
 
 /* ═══ 4. 元件（../_shared/design/components-spec.html） ═══ */
 /* 膠囊：h40 全圓角。本模擬的膠囊都是橫排等寬（材料、導熱快慢） */
-.chiprow{display:flex;gap:8px}
-.chip{white-space:nowrap;height:40px;padding:0 12px;border-radius:20px;background:var(--c-surface);border:1px solid var(--c-bd-ctl);color:var(--c-text-2);font-size:calc(13px * var(--u));display:flex;align-items:center;justify-content:center}
+/* 一組膠囊橫排、放不下就換行、間距 6；內距 14、兩態字重都 700
+   （2026-10-08 第三輪 E3、G1，同 _shared/template/index.html:237、240；原本 gap 8、內距 12、未選態 400）。
+   本模擬的膠囊另外 flex:1 等寬，這一條是本模擬自己的，不動 */
+.chiprow{display:flex;flex-wrap:wrap;gap:6px}
+.chip{white-space:nowrap;height:40px;padding:0 14px;border-radius:20px;background:var(--c-surface);border:1px solid var(--c-bd-ctl);color:var(--c-text-2);font-size:calc(13px * var(--u));font-weight:700;display:flex;align-items:center;justify-content:center}
 .chiprow .chip{flex:1;min-width:0}
 .chip[aria-pressed="true"]{background:var(--c-primary);border-color:var(--c-primary);color:#fff;font-weight:700}
 .field{display:flex;flex-direction:column;gap:8px}
@@ -158,8 +208,15 @@ main{flex:1;position:relative;display:grid;grid-template-columns:minmax(0,1fr) m
 .seg button[aria-pressed="true"]{background:var(--c-surface);color:var(--c-text);box-shadow:0 1px 3px rgba(28,36,51,.16)}
 .seg button::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   width:100%;height:44px;min-width:44px}
-/* 預設比較組三格字較長，1024 寬時每格只剩約 70px，允許折行 */
-#segPreset button{white-space:normal;line-height:1.1;padding:0 4px;text-align:center}
+/* 這一頁不適用（DESIGN_SPEC「目前不適用用 disabled」）：留在原位變灰，抽屜版面不因換頁跳動。
+   圓鈕沿用 optics-sim/index.html:171；不加按下縮放與 hover，免得看起來能按 */
+/* 以上兩行註解與以下四條逐字搬自 sound-sim/index.html:176-181（熱脹冷縮頁的抽屜三鈕，D137） */
+/* 2026-10-08 第三輪 C11：改成 _shared/template/index.html:198-202 那一組（template 是從這裡回流的），字色走 --c-disabled，
+   並把按鈕、膠囊併進同一條 */
+.round-btn:disabled,.round-btn.primary:disabled,.btn:disabled,.chip:disabled,.chip[aria-pressed="true"]:disabled{background:var(--c-bg);border-color:var(--c-bd);color:var(--c-disabled);cursor:default}
+.seg button:disabled{color:var(--c-disabled);cursor:default}
+.seg button[aria-pressed="true"]:disabled{box-shadow:none}
+.speed[aria-disabled="true"] .name{color:var(--c-disabled)}
 
 /* 物體標題列與左欄控制項前的字母徽章（D37：A／B 以徽章區分，顏色留給溫度）。
    固定 22px 容器，字級不乘 --u */
@@ -185,7 +242,7 @@ input[type="range"]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;b
 .steprow .name{font-size:calc(13px * var(--u));font-weight:700;color:var(--c-text-2);white-space:nowrap;flex:none}
 .stepper{display:inline-flex;align-items:center;border:1px solid var(--c-bd-ctl);border-radius:10px;overflow:hidden;flex:none}
 .stepper button{width:44px;height:44px;background:var(--c-bg);color:var(--c-text-2);font-size:14px;display:flex;align-items:center;justify-content:center}
-.stepper button:disabled{color:var(--c-off);cursor:default}
+.stepper button:disabled{color:var(--c-disabled);cursor:default}
 .stepper .v{min-width:78px;height:44px;display:flex;align-items:center;justify-content:center;font-size:calc(15px * var(--u));font-weight:700;
   font-variant-numeric:tabular-nums;border-left:1px solid var(--c-bd);border-right:1px solid var(--c-bd)}
 
@@ -197,35 +254,51 @@ label.check .box i{visibility:hidden}
 label.check input:checked+.box i{visibility:visible}
 .card.checks{gap:4px}
 
+/* 進階摺疊區（DESIGN_SPEC 第 4 節 .adv）：逐字搬自 _shared/template/index.html:118-124。
+   用原生 <details>/<summary>，不自己寫 JS。只有熱平衡頁有進階項（D86） */
+.adv{border-top:1px solid var(--c-bd);margin-top:-4px}
+.adv-head{height:44px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;
+  font-size:calc(13px * var(--u));font-weight:700;color:var(--c-text-3);list-style:none}
+.adv-head::-webkit-details-marker{display:none}
+.adv-head i{font-size:calc(11px * var(--u));color:var(--c-text-3);transition:transform .15s}
+.adv[open] .adv-head i{transform:rotate(180deg)}
+.adv-body{display:flex;flex-direction:column;gap:16px;padding-bottom:2px}
+
 /* 說明彈窗 */
 .modal{position:fixed;inset:0;background:rgba(28,36,51,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
 .modal.open{display:flex}
 .modal .box{background:var(--c-surface);border-radius:14px;padding:24px 26px;max-width:520px;max-height:80%;overflow-y:auto;user-select:text;-webkit-user-select:text}
 .modal h3{font-size:calc(17px * var(--u));margin:0 0 10px}
 .modal p{font-size:calc(13.5px * var(--u));color:var(--c-text-2);margin:0 0 10px}
+/* 說明的分區小標與條目（2026-10-08 第三輪 C8）：逐字搬 _shared/template/index.html:326-328 */
+.modal h4{font-size:calc(13.5px * var(--u));font-weight:700;color:var(--c-text);margin:12px 0 4px}
+.modal ul{margin:0 0 4px;padding-left:1.2em;font-size:calc(13.5px * var(--u));color:var(--c-text-2)}
+.modal li{margin:2px 0}
 
 @media (hover:hover){
-  .icon-btn:hover,.round-btn:hover{border-color:var(--c-primary);color:var(--c-primary)}
-  .round-btn.primary:hover{background:var(--c-primary-dark);color:#fff}
-  .chip[aria-pressed="false"]:hover{border-color:var(--c-primary)}
-  .seg button[aria-pressed="false"]:hover{color:var(--c-text-2)}
+  .icon-btn:hover,.round-btn:not(:disabled):hover{border-color:var(--c-primary);color:var(--c-primary)}
+  .round-btn.primary:not(:disabled):hover{background:var(--c-primary-dark);color:#fff}
+  .chip[aria-pressed="false"]:not(:disabled):hover{border-color:var(--c-primary)}
+  .seg button[aria-pressed="false"]:not(:disabled):hover{color:var(--c-text-2)}
   .stepper button:not(:disabled):hover{color:var(--c-primary)}
   .navtab[aria-selected="false"]:hover{color:#fff}
 }
 
 /* ═══ 5. 響應式：<900px 左欄與圖表摺成浮出面板，「設定／數據」兩顆 chip（D49：三頁都是三欄） ═══ */
 @media (max-width:899px){
-  main,.app[data-page="p"] main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+  main,.app[data-page="p"] main,.app[data-page="x"] main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
   /* 絕對定位的 grid 子元素若留著 grid-row，containing block 會變成那一格而不是 main */
   .app[data-page] .panel,.app[data-page] .stage,.app[data-page] .chartcol{grid-column:auto;grid-row:auto}
   .panel,.chartcol{display:none}
   .mobile-tabs{display:flex}
-  .app[data-page="p"] .drawer{grid-template-columns:minmax(0,1fr);padding:10px 0 12px}
-  .app[data-page="p"] .drawer .row{padding:0 20px}
+  .drawer{grid-template-columns:minmax(0,1fr)}
+  .drawer .row{padding:0 20px 0 14px}
   body.show-settings .panel{display:flex;position:absolute;left:14px;right:14px;bottom:0;max-height:62%;z-index:5;
     background:var(--c-bg);border-radius:12px 12px 0 0;padding:12px;box-shadow:0 8px 28px rgba(28,36,51,.25)}
   body.show-data .chartcol{display:block;position:absolute;left:14px;right:14px;bottom:0;height:62%;z-index:5;
     box-shadow:0 8px 28px rgba(28,36,51,.25)}
+  /* 熱脹冷縮沒有右欄：只有「設定」一顆 chip */
+  .app[data-page="x"] #tabData{display:none}
 }
 </style>
 </head>
@@ -258,18 +331,27 @@ label.check input:checked+.box i{visibility:visible}
             <input type="range" id="t1B" min="0" max="100" step="20" value="20" aria-label="物體 B 初溫">
             <div class="minmax"><span>0</span><span>100</span></div>
           </div>
-          <div class="field">
-            <div class="fname">導熱快慢</div>
-            <div class="chiprow" id="t1K" role="group" aria-label="導熱快慢">
-              <button class="chip" data-v="慢" aria-pressed="false">慢</button>
-              <button class="chip" data-v="中" aria-pressed="true">中</button>
-              <button class="chip" data-v="快" aria-pressed="false">快</button>
+          <!-- 導熱快慢只改變趨近速度、不改平衡溫度，是非核心變因 → 收進「進階」（D86）。
+               只有這一頁有進階項，其他兩頁不放摺疊區（DESIGN_SPEC 第 4 節 .adv） -->
+          <details class="adv">
+            <summary class="adv-head">進階<i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="adv-body">
+              <div class="field">
+                <div class="fname">導熱快慢</div>
+                <div class="chiprow" id="t1K" role="group" aria-label="導熱快慢">
+                  <button class="chip" data-v="慢" aria-pressed="false">慢</button>
+                  <button class="chip" data-v="中" aria-pressed="true">中</button>
+                  <button class="chip" data-v="快" aria-pressed="false">快</button>
+                </div>
+              </div>
             </div>
-          </div>
+          </details>
         </div>
+        <!-- 「已達熱平衡」不設開關（D87），改在資訊卡的「平衡狀態」顯示（D101）；實體接觸圖一律顯示、不設開關（D114）。
+             「顯示能量符號」與比熱頁那一顆是同一個狀態 lay.chunks（D112） -->
         <div class="card checks">
-          <label class="check"><input type="checkbox" data-lay="eq1"><span class="box"><i class="fa-solid fa-check"></i></span>顯示已達熱平衡</label>
           <label class="check"><input type="checkbox" data-lay="te1"><span class="box"><i class="fa-solid fa-check"></i></span>顯示平衡溫度</label>
+          <label class="check"><input type="checkbox" data-lay="chunks"><span class="box"><i class="fa-solid fa-check"></i></span>顯示能量符號</label>
         </div>
       </div>
 
@@ -277,16 +359,12 @@ label.check input:checked+.box i{visibility:visible}
       <div class="grp" id="grpT2" hidden>
         <div class="card">
           <div class="seg" id="segMode" role="group" aria-label="模式">
-            <button data-v="single" aria-pressed="true">單槽</button>
-            <button data-v="double" aria-pressed="false">雙槽</button>
+            <button data-v="single" aria-pressed="true">單獨加熱</button>
+            <button data-v="double" aria-pressed="false">兩物接觸</button>
           </div>
 
+          <!-- 「100 g 水／200 g 水／100 g 甘油」預設比較組已取消（D96），材料與質量各自調 -->
           <div class="grp" id="grpSingle" style="gap:16px">
-            <div class="seg" id="segPreset" role="group" aria-label="預設比較組">
-              <button data-v="100 g 水" aria-pressed="true">100 g 水</button>
-              <button data-v="200 g 水" aria-pressed="false">200 g 水</button>
-              <button data-v="100 g 甘油" aria-pressed="false">100 g 甘油</button>
-            </div>
             <div class="field">
               <div class="fname">材料</div>
               <div class="chiprow" id="sMat" role="group" aria-label="材料">
@@ -332,18 +410,36 @@ label.check input:checked+.box i{visibility:visible}
             </div>
           </div>
         </div>
-        <div class="card checks" id="cardDLayers" hidden>
-          <label class="check"><input type="checkbox" data-lay="heat"><span class="box"><i class="fa-solid fa-check"></i></span>顯示放熱與吸熱</label>
-          <label class="check"><input type="checkbox" data-lay="te2"><span class="box"><i class="fa-solid fa-check"></i></span>顯示平衡溫度</label>
-          <label class="check"><input type="checkbox" data-lay="avg"><span class="box"><i class="fa-solid fa-check"></i></span>顯示兩初溫平均</label>
-          <label class="check"><input type="checkbox" data-lay="area"><span class="box"><i class="fa-solid fa-check"></i></span>顯示放熱＝吸熱的液體量</label>
+        <!-- 答案型開關只留「顯示平衡溫度」（D113，只在兩物接觸）；「顯示能量符號」兩種模式都有（D112） -->
+        <div class="card checks">
+          <label class="check" id="chkTe2" hidden><input type="checkbox" data-lay="te2"><span class="box"><i class="fa-solid fa-check"></i></span>顯示平衡溫度</label>
+          <label class="check"><input type="checkbox" data-lay="chunks"><span class="box"><i class="fa-solid fa-check"></i></span>顯示能量符號</label>
         </div>
       </div>
 
-      <!-- ── 熱與粒子：只有一張卡，不補空殼（設計稿難題 9） ── -->
+      <!-- ── 三態變化：只有一張卡，不補空殼（設計稿難題 9） ── -->
       <div class="grp" id="grpT3" hidden>
         <div class="card checks">
           <label class="check"><input type="checkbox" data-lay="phase"><span class="box"><i class="fa-solid fa-check"></i></span>顯示物態名稱</label>
+          <label class="check"><input type="checkbox" data-lay="mpbp"><span class="box"><i class="fa-solid fa-check"></i></span>顯示熔點、沸點</label>
+        </div>
+      </div>
+
+      <!-- ── 熱脹冷縮：三態是三個不同的實驗（D119），切換時保留溫度（C49）。
+           溫度不標數值、只標低／高（D120），連續滑動（D141）；「挖孔」只有固態有（D122，其他態 hidden） ── -->
+      <div class="grp" id="grpT4" hidden>
+        <div class="card">
+          <div class="seg" id="xPh" role="group" aria-label="物態">
+            <button data-v="s" aria-pressed="true">固態</button>
+            <button data-v="l" aria-pressed="false">液態</button>
+            <button data-v="g" aria-pressed="false">氣態</button>
+          </div>
+          <div class="sliderbox">
+            <div class="head"><span class="name">溫度</span></div>
+            <input type="range" id="xLv" min="0" max="1" step="0.01" value="0" aria-label="溫度">
+            <div class="minmax"><span>低</span><span>高</span></div>
+          </div>
+          <label class="check" id="chkHole"><input type="checkbox" id="xHole"><span class="box"><i class="fa-solid fa-check"></i></span>挖孔</label>
         </div>
       </div>
 
@@ -354,17 +450,35 @@ label.check input:checked+.box i{visibility:visible}
 
     <div class="stage" id="stageWrap">
       <canvas id="simCanvas"></canvas>
-      <div class="stage-readout" id="sReadout" hidden>
-        <span>每分鐘供熱 <b id="sPower">300</b> cal</span>
-        <span>已加熱 <b id="sT">0.0</b> 分</span>
-        <span>熱量 H <b id="sH">0</b> cal</span>
+      <div class="stage-cap" id="sCap" hidden>模擬顯示至 100 °C</div><!-- 數字與單位空一格（2026-10-08 第三輪 B10） -->
+      <!-- 水位模型的對應規則（文字依 D91、排法依 D99）；熱平衡頁加 .one 只留第一行（D100） -->
+      <div class="model-note" id="modelNote" hidden>
+        <div class="mt">水位模型</div>
+        <div><b>高度</b>＝溫度</div>
+        <div class="full"><b>寬度</b>＝比熱×質量</div>
+        <div class="full"><b>變化面積</b>＝熱量</div>
       </div>
-      <div class="stage-cap" id="sCap" hidden>溫度已達 100 °C，停止加熱</div>
     </div>
 
     <section class="chartcol" id="chartWrap">
       <canvas id="chartCanvas"></canvas>
     </section>
+
+    <!-- 每一格的 data-for 決定在哪一頁出現（s＝單獨加熱、t1＝熱平衡、d＝兩物接觸）。
+         單獨加熱只留「已加入熱量」（D111）；熱平衡與兩物接觸都是「平衡狀態」＋「A、B 溫差」（D101、D115）。
+         平衡狀態是結論，用光學「成像性質」那一級的 .nat -->
+    <div class="infocard" id="infoCard" hidden>
+      <div class="g" data-for="s"><div class="k">已加入熱量</div><div class="pos"><span class="num-val" id="sH">0</span> cal</div></div>
+      <div class="g" data-for="t1 d"><div class="k">平衡狀態</div><div class="nat" id="eEq">尚未平衡</div></div>
+      <div class="g" data-for="t1 d"><div class="k">A、B 溫差</div><div class="pos"><span class="num-val" id="eD">0</span> °C</div></div>
+      <!-- 三態變化（D144、D145）：放模擬區左下；狀態是結論，用 .nat；「狀態」跟著「顯示物態名稱」開關（D48 不變） -->
+      <div class="g" data-for="p"><div class="k">溫度</div><div class="pos"><span class="num-val" id="pT">−20</span> °C</div></div>
+      <div class="g" data-for="p" id="pPhG"><div class="k">狀態</div><div class="nat" id="pPh">固</div></div>
+      <!-- 熱脹冷縮（D128、C51）：三態低溫時都是 100 cm³；質量不隨溫度變，數值取自設計稿 v2 的 XMASS -->
+      <div class="g" data-for="x"><div class="k">體積</div><div class="pos"><span class="num-val" id="xVol">100.0</span> cm³</div></div>
+      <div class="g" data-for="x"><div class="k">比低溫時</div><div class="pos"><span class="num-val" id="xPct">+0.0</span> %</div><!-- % 前留空格（DEV_SPEC §9 第 8 條，2026-10-08 第三輪 D6） --></div>
+      <div class="g" data-for="x"><div class="k">質量</div><div class="pos"><span class="num-val" id="xMass">270</span> g</div></div>
+    </div>
   </main>
 
   <!-- 底部抽屜：只放播放控制（DESIGN_SPEC 第 1 節）。熱平衡、比熱不設時間軸（D32）；
@@ -388,32 +502,98 @@ label.check input:checked+.box i{visibility:visible}
         <button class="chip" id="tabData" aria-pressed="false"><i class="fa-solid fa-chart-simple" style="margin-right:6px"></i>數據</button>
       </div>
     </div>
-    <div class="tl" id="tlCell" hidden>
-      <input type="range" id="tl" min="0" max="40" step="0.01" value="0" aria-label="時間軸">
+    <!-- 時間軸標示照運動學模擬的 .scrubbox（motion-graphs-sim/index.html:690-702，D73）：
+         標題列＋刻度線＋數字列＋跑不到的時段。#tlBody 的左緣與寬度由 positionTimeline() 寫入 -->
+    <div class="tl off" id="tlCell">
+      <div class="scrubbox" id="tlBody">
+        <div class="head">
+          <span class="name">時間軸</span>
+          <span class="now"><i>t</i> = <span id="tlNow">0.0</span> 分</span>
+        </div>
+        <div class="scrub-wrap">
+          <div class="scrub-ticks" id="tlTicks"></div>
+          <div class="scrub-blocked on" id="tlBlocked"></div>
+          <input type="range" id="tl" min="0" max="40" step="0.01" value="0" aria-label="時間軸">
+        </div>
+        <div class="marks" id="tlMarks"></div>
+      </div>
     </div>
   </div>
 
   <nav class="bottomnav" id="nav">
     <button class="navtab" data-tab="0" aria-selected="true">熱平衡</button>
     <button class="navtab" data-tab="1" aria-selected="false">比熱</button>
-    <button class="navtab" data-tab="2" aria-selected="false">熱與粒子</button>
+    <button class="navtab" data-tab="2" aria-selected="false">三態變化</button>
+    <button class="navtab" data-tab="3" aria-selected="false">熱脹冷縮</button>
     <span class="navmeta" id="navMeta"></span>
   </nav>
-</div>
+
+<!-- 彈窗放在 #app 裡面（#app 收在說明彈窗之後）：全螢幕的對象是 #app，放在外面全螢幕時看不到
+     （2026-10-08 第三輪，同 _shared/template/index.html；DEV_SPEC 全螢幕那條） -->
 
 <!-- 說明彈窗：只寫操作（DESIGN_SPEC 第 4 節「說明彈窗」）。
-     data-for 決定哪一頁顯示哪一段：時間軸那一句只在熱與粒子頁（D43） -->
+     2026-10-08 第三輪 C8 改結構（母倉 PROJECT_PLAN §9.10）：每個分頁一份（data-screen＝state.tab）、按「下方抽屜 → 左欄設定 → 主畫布」分區；
+     標「共同」的字句跨模擬一字不改。原本的版面導覽句（「左邊調整條件，中間看模擬，右邊看圖表」等三句）不在新結構裡，移除；
+     主畫布沒有能直接操作的東西，四頁都不列主畫布區。熱脹冷縮頁的抽屜三鈕停用（D137），那一頁不列下方抽屜 -->
 <div class="modal" id="helpModal">
   <div class="box">
     <h3>操作說明</h3>
-    <p data-for="t1 t2">左邊調整條件，中間看模擬，右邊看圖表。</p>
-    <p data-for="p">右上看模擬，右下看加熱曲線。</p>
-    <p><i class="fa-solid fa-play"></i> 播放／暫停　<i class="fa-solid fa-rotate-left"></i> 重設這一輪：回到播放前，條件不變。</p>
-    <p><i class="fa-solid fa-arrow-rotate-left"></i> 重設全部：條件全部恢復。</p>
-    <p data-for="p">拖曳下方時間軸，可以回頭看任一時刻。</p>
+    <div class="help-page" data-screen="0">
+      <h4>下方抽屜</h4>
+      <ul>
+        <li><i class="fa-solid fa-play"></i>／<i class="fa-solid fa-pause"></i>：開始或停下來。</li><!-- 共同 -->
+        <li><i class="fa-solid fa-rotate-left"></i> 重設這一輪：回到開始前，條件不變。</li><!-- 共同 -->
+        <li>播放速度：0.5× 比較慢，2× 比較快。</li><!-- 共同 -->
+      </ul>
+      <h4>左欄設定</h4>
+      <ul>
+        <li>上面的卡：調整實驗條件。</li><!-- 共同 -->
+        <li>進階：比較少用的條件收在這裡。</li><!-- 共同 -->
+        <li>下面的卡：勾「顯示…」只改畫面，不改結果。</li><!-- 共同 -->
+        <li>重設全部：每個分頁都回到一開始的設定。</li><!-- 共同 -->
+      </ul>
+    </div>
+    <div class="help-page" data-screen="1" hidden>
+      <h4>下方抽屜</h4>
+      <ul>
+        <li><i class="fa-solid fa-play"></i>／<i class="fa-solid fa-pause"></i>：開始或停下來。</li><!-- 共同 -->
+        <li><i class="fa-solid fa-rotate-left"></i> 重設這一輪：回到開始前，條件不變。</li><!-- 共同 -->
+        <li>播放速度：0.5× 比較慢，2× 比較快。</li><!-- 共同 -->
+      </ul>
+      <h4>左欄設定</h4>
+      <ul>
+        <li>上面的卡：調整實驗條件。</li><!-- 共同 -->
+        <li>質量：按住 <i class="fa-solid fa-minus"></i>／<i class="fa-solid fa-plus"></i> 可以連續調。</li>
+        <li>下面的卡：勾「顯示…」只改畫面，不改結果。</li><!-- 共同 -->
+        <li>重設全部：每個分頁都回到一開始的設定。</li><!-- 共同 -->
+      </ul>
+    </div>
+    <div class="help-page" data-screen="2" hidden>
+      <h4>下方抽屜</h4>
+      <ul>
+        <li><i class="fa-solid fa-play"></i>／<i class="fa-solid fa-pause"></i>：開始或停下來。</li><!-- 共同 -->
+        <li><i class="fa-solid fa-rotate-left"></i> 重設這一輪：回到開始前，條件不變。</li><!-- 共同 -->
+        <li>播放速度：0.5× 比較慢，2× 比較快。</li><!-- 共同 -->
+        <li>時間軸：拖到想看的時刻。</li>
+      </ul>
+      <h4>左欄設定</h4>
+      <ul>
+        <li>下面的卡：勾「顯示…」只改畫面，不改結果。</li><!-- 共同 -->
+        <li>重設全部：每個分頁都回到一開始的設定。</li><!-- 共同 -->
+      </ul>
+    </div>
+    <div class="help-page" data-screen="3" hidden>
+      <h4>左欄設定</h4>
+      <ul>
+        <li>上面的卡：調整實驗條件。</li><!-- 共同 -->
+        <li>挖孔：只有固態可以選，在固體中央挖一個圓孔。</li>
+        <li>重設全部：每個分頁都回到一開始的設定。</li><!-- 共同 -->
+      </ul>
+    </div>
     <button class="btn primary" id="btnCloseHelp" style="margin-left:auto">關閉</button>
   </div>
 </div>
+</div><!-- /#app -->
 
 <script>
 'use strict';
@@ -423,7 +603,8 @@ const APP_AUTHOR = '宏福';
 const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif';
 // 畫布繪圖色一律取自 DESIGN_SPEC 第 3 節
 const C = {
-  liquid:'#F3D34E',   // 熱能液體（D46，借用「塑膠/蠟」）
+  liquid:'#F3D34E',   // 熱能液體（D46，借用「塑膠/蠟」）；能量塊同色（D79）
+  liquidEdge:'#C7A82C',   // 塑膠/蠟的框色，能量塊描邊
   wall:'#5F6B7E',     // 槽壁：燒杯/器皿描邊色；A／B 一律中性色（D37）
   axis:'#7A8496', grid:'#D5DAE1', gridMajor:'#A6AEBA',
   t1:'#1C2433', t2:'#445062', t3:'#67717F',
@@ -433,18 +614,27 @@ const C = {
   cold:[59, 130, 246], hot:[214, 69, 69],          // 溫度漸層 #3B82F6 → #D64545
   metal:'#8A94A3', red:'#D64545', flame:'#D2700F', flameIn:'#F3D34E',
   glass:'#C5DDE8', waterTop:'#DBEAFE', waterBot:'#93C5FD', waterLine:'rgba(42,111,219,.45)',
-  ice:'#ECEFF3', iceEdge:'#9DAABB', part:'#E2654A', rub:'#D9A05B', rubEdge:'#A8763D',
+  ice:'#ECEFF3', iceEdge:'#9DAABB', rub:'#D9A05B', rubEdge:'#A8763D',
+  /* 粒子依物態深淺（D77）：氣＝DESIGN_SPEC 的氧 #E2654A，是這個色相在白底上仍過 3:1 的最淺一階
+     （3.4:1），所以「淺」只能到這裡；液、固往深走（6.0:1、11:1）。後兩色不在色票內，本模擬專用 */
+  partS:'#6E2211', partL:'#B23A22', partG:'#E2654A',
+  // 熱脹冷縮的液體（D140）：序列色第 5 條，本模擬沒用過；藍是水、黃是熱能、紫綠是比熱頁疊線色
+  xLiq:'#0F8A8A',
 };
+// 各物態段的曲線顏色：單一物態一色，共存平台兩色（畫成交替虛線，D77）。索引＝p3().seg
+const PHASE_COL = [[C.partS], [C.partS, C.partL], [C.partL], [C.partL, C.partG], [C.partG]];
 // 介面文字用的序列色：綠 #2F9E63 當 13px 文字不到 4.5:1，改用合格色定案表的 #24794C
 const SER_TXT = {'#2A6FDB':'#2A6FDB', '#2F9E63':'#24794C', '#D2700F':'#1C2433', '#8B5CF6':'#1C2433'};
-const PIPE_W = {'慢':8, '中':16, '快':28};               // 開孔三檔粗細（px），雙槽固定「中」（D14）
-const PRESETS = {'100 g 水':['水', 100], '200 g 水':['水', 200], '100 g 甘油':['甘油', 100]};
+const PIPE_W = 16;   // 開孔粗細固定（px）：導熱快慢不再用粗細表示，只影響趨近速度與箭號流速（D93）
 const MASS_MIN = 50, MASS_MAX = 300, MASS_STEP = 50;   // 每 50 g 一槽（D34）
 const G_PER_SLOT = 50;
 const HIST_MAX = 3;         // 單槽疊圖：保留前 3 條＋目前這條＝序列色 4 色（C13）
 /* 時間：四個「時間鍵」各自獨立，切頁回來停在原處。
-   t1＝熱平衡、s＝比熱單槽、d＝比熱雙槽、p＝熱與粒子 */
+   t1＝熱平衡、s＝比熱單槽、d＝比熱雙槽、p＝三態變化（熱脹冷縮 x 沒有時間，不在這裡） */
 const RATE   = {t1:2,  s:1,  d:2,  p:2.5};     // 1× 時每秒推進幾分鐘
+// 讀數與刻度的小數位數集中一處（2026-10-08 第三輪 B43：原本 0／1 散寫在各處的 fmt()／toFixed()）。
+// 位數依該量的最小變化量（DESIGN_SPEC 第 4 節，A5）：溫度取整、時間到 0.1 分、熱脹冷縮的百分比到 0.1
+const DEC = {temp:0, time:1, pct:1};
 
 /* ═══ PHYSICS BEGIN ═══
    純函式、不碰 DOM／state：tests/physics.test.mjs 以 BEGIN／END 這對標記擷取本段直接執行，改名要一起改 */
@@ -473,7 +663,7 @@ function dAt(o, t){
 // 單槽：ΔT＝H／(MS)，H＝功率×加熱時間（D8）；到 100 °C 就停（D51）
 function sDT(C, t){ return Math.min(DT_CAP, POWER * t / C); }
 function sCapT(C){ return Math.min(MAX_T.s, DT_CAP * C / POWER); }
-/* 熱與粒子：冰 0.5、熔化 80 cal/g、水 1、汽化 540 cal/g、水蒸氣 0.48；穩定熱源 20 cal/(g·分)（D6）。
+/* 三態變化：冰 0.5、熔化 80 cal/g、水 1、汽化 540 cal/g、水蒸氣 0.48；穩定熱源 20 cal/(g·分)（D6）。
    分段端點：−20→0 °C 0.5 分、熔化 4 分、0→100 °C 5 分、沸騰 27 分、100→120 °C 0.48 分 */
 const P3B = [0, 0.5, 4.5, 9.5, 36.5, 36.98], P3T = [-20, 0, 0, 100, 100, 120];
 function p3(t){
@@ -490,6 +680,37 @@ function vT(T){ return 15 + 0.35 * (T + 20); }
    熔化平台 T＝0 不變，間距自然不動（C14） */
 function solidScale(T){ return 1 + 0.08 * (Math.min(0, Math.max(-20, T)) + 20) / 20; }
 function liquidScale(T){ return 1 + 0.2 * Math.min(100, Math.max(0, T)) / 100; }
+/* 能量塊（D81、C40）：塊數 ∝ 質量×比熱×（溫度＋起算量）。起算量依物質而不同，
+   所以找不到一個溫度讓所有物質同時沒有能量塊（使用者：學生這階段不需要知道絕對零度）；
+   0 °C 也一定有塊。起算量取小值，傳熱時移動的塊數才看得出來。
+   總數先算、再分給 A，兩邊塊數和整輪不變（熱量守恆的樣子），每邊至少 1 塊 */
+const CHUNK_CAL = 1000, E_OFF = {水:20, 甘油:40, 鐵:60};
+const chunkE = o => o.mass * SPEC_HEAT[o.mat] * (o.T + E_OFF[o.mat]);
+function chunkCounts(A, B){
+  const eA = chunkE(A), tot = Math.max(2, Math.round((eA + chunkE(B)) / CHUNK_CAL));
+  const nA = Math.min(tot - 1, Math.max(1, Math.round(eA / CHUNK_CAL)));
+  return [nA, tot - nA];
+}
+// 單槽只有一個物體（D98）：加熱 t 分鐘熱能多 POWER×t，塊數多出的就是火焰送進來的，同一條換算
+function chunkCount(o){ return Math.max(1, Math.round(chunkE(o) / CHUNK_CAL)); }
+/* 熱脹冷縮（D125、D135、D136）：滑桿由最低到最高，各態的體積增加率。數值是交給 Claude Design tweak 的
+   起始值（C50），只表示「氣 ＞ 液 ＞ 固」，不是哪一種真實物質（D119）。lv＝滑桿位置 0–1 */
+const X_RATE = {s:0.08, l:0.15, g:0.30};
+function xRatio(ph, lv){ return X_RATE[ph] * Math.min(1, Math.max(0, lv)); }
+// 粒子速率：滑桿最低＝三態變化頁 −20 °C、最高＝120 °C 的速率（C53）
+function xSpeed(lv){ return vT(-20 + 140 * Math.min(1, Math.max(0, lv))); }
+/* 固體粒子：9×9 方陣，挖孔時拿掉落在中央圓孔內的粒子（D138）。座標單位＝格，格距 X_SP 個粒子半徑。
+   孔半徑 1.5 格＝方陣邊長的 1/6，與畫面上方塊的孔同比例；升溫時所有位置乘同一倍率，粒子數不變 */
+const X_N = 9, X_SP = 2.3, X_HOLE = 1.5;
+function xLattice(hole){
+  const out = [], h = (X_N - 1) / 2;
+  for (let i = 0; i < X_N; i++) for (let j = 0; j < X_N; j++){
+    const x = i - h, y = j - h;
+    if (hole && Math.hypot(x, y) < X_HOLE) continue;
+    out.push({x, y});
+  }
+  return out;
+}
 /* ═══ PHYSICS END ═══ */
 
 // 單槽的播放上限隨材料與質量而變（到 100 °C 就停），其他頁固定
@@ -497,12 +718,14 @@ function maxT(k){
   if (k === 's') return sCapT(state.s.mass * SPEC_HEAT[state.s.mat]);
   return MAX_T[k];
 }
-// 圖表軸（DESIGN_SPEC 第 7 節：軸範圍一律固定）
+// 圖表軸（DESIGN_SPEC 第 7 節：軸範圍一律固定）。
+// 熱平衡、比熱的格線只畫在有數字的刻度上（D102）：溫度每 20 °C、時間每 4 分；單槽只有 0–10 分、數字每 2 分，格線跟數字走
 const CHART = {
-  t1:{xMax:20, xStep:2, xLab:4, yMin:0, yMax:100, yStep:10, yLab:20, yTitle:'溫度 T (°C)', xTitle:'時間 t (分)'},
-  d: {xMax:20, xStep:2, xLab:4, yMin:0, yMax:100, yStep:10, yLab:20, yTitle:'溫度 T (°C)', xTitle:'時間 t (分)'},
-  s: {xMax:10, xStep:1, xLab:2, yMin:0, yMax:80,  yStep:10, yLab:20, yTitle:'上升溫度 ΔT (°C)', xTitle:'加熱時間 t (分)'},
-  p: {xMax:40, xStep:5, xLab:5, yMin:-20, yMax:120, yStep:10, yLab:20, yStepSmall:20, yLabSmall:50,
+  t1:{xMax:20, xStep:4, xLab:4, yMin:0, yMax:100, yStep:20, yLab:20, yTitle:'溫度 T (°C)', xTitle:'時間 t (分)'},
+  d: {xMax:20, xStep:4, xLab:4, yMin:0, yMax:100, yStep:20, yLab:20, yTitle:'溫度 T (°C)', xTitle:'時間 t (分)'},
+  s: {xMax:10, xStep:2, xLab:2, yMin:0, yMax:80,  yStep:20, yLab:20, yTitle:'上升溫度 ΔT (°C)', xTitle:'加熱時間 t (分)'},
+  // 格線每 20 °C 一條、與刻度數字同一組（D68）
+  p: {xMax:40, xStep:5, xLab:5, yMin:-20, yMax:120, yStep:20, yLab:20, yStepSmall:20, yLabSmall:50,
       yTitle:'溫度 T (°C)', xTitle:'加熱時間 t (分)', note:'穩定熱源'},
 };
 const THUMB = 24;           // 滑桿把手直徑，CSS 的 24px 同值；時間軸對齊要用
@@ -512,7 +735,7 @@ function initState(){
   return {
     tab:0, speed:1,
     time:{t1:0, s:0, d:0, p:0},
-    // 熱與粒子的曲線畫到「跑過的最遠時刻」：拖回去是回看，已長出的曲線不收回（DESIGN_SPEC 第 7 節）
+    // 三態變化的曲線畫到「跑過的最遠時刻」：拖回去是回看，已長出的曲線不收回（DESIGN_SPEC 第 7 節）
     reachedP:0,
     t1:{A:80, B:20, k:'中'},                       // C18
     mode:'single',
@@ -520,7 +743,10 @@ function initState(){
     s:{mat:'水', mass:100, hist:[]},
     d:{A:{mat:'水', mass:100, T0:80}, B:{mat:'水', mass:200, T0:20}},
     // 顯示圖層全部是答案型，預設關（D31、D48）
-    lay:{eq1:false, te1:false, heat:false, te2:false, avg:false, area:false, phase:false},
+    // chunks：能量符號，不是答案型，但使用者指定預設關（D112）；熱平衡與比熱兩頁共用
+    lay:{te1:false, te2:false, chunks:false, phase:false, mpbp:false},
+    // 熱脹冷縮：沒有時間軸，只有物態、滑桿位置 0–1、挖孔
+    x:{ph:'s', lv:0, hole:false},
   };
 }
 let state = initState();
@@ -528,9 +754,10 @@ let state = initState();
 function timeKey(){
   if (state.tab === 0) return 't1';
   if (state.tab === 2) return 'p';
+  if (state.tab === 3) return 'x';   // 熱脹冷縮沒有時間；播放相關的鈕在這頁 disabled（D137）
   return state.mode === 'single' ? 's' : 'd';
 }
-function pageKey(){ return ['t1', 't2', 'p'][state.tab]; }
+function pageKey(){ return ['t1', 't2', 'p', 'x'][state.tab]; }
 
 /* ═══ 3. 時間：唯一入口 seek(t)（DESIGN_SPEC 第 7 節）。播放、拖時間軸、重設都走它 ═══ */
 let dirty = true;
@@ -564,15 +791,6 @@ function tag(ctx, s, x, y, o = {}){
 function dashLine(ctx, x1, x2, y, c, d = [6, 4], w = 1.5){
   ctx.save(); ctx.setLineDash(d); ctx.strokeStyle = c; ctx.lineWidth = w;
   ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke(); ctx.restore();
-}
-// 放熱＝吸熱對照帶用斜線網底、不另選顏色：顏色在本模擬保留給溫度（D37）
-function hatch(ctx, x, y, w, h, c){
-  if (h < 1 || w < 1) return;
-  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
-  ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.beginPath();
-  for (let k = -h; k < w; k += 7){ ctx.moveTo(x + k, y + h); ctx.lineTo(x + k + h, y); }
-  ctx.stroke(); ctx.restore();
 }
 // 接觸示意的方塊填色：0 °C 冷藍 → 100 °C 熱紅（D39）
 function tempCol(T){
@@ -609,12 +827,19 @@ function badge(ctx, x, y, L){
 }
 
 /* ── 水位模型 ──
-   水位＝溫度、槽內液體＝熱能、流過開孔的液體＝熱量、槽寬＝M×S（DESIGN_BRIEF 第 1 節）。
+   水位＝溫度、槽寬＝M×S、水位變化的面積＝吸收／放出的熱量（DESIGN_BRIEF 第 1 節；畫面用字依 D109）。
    位置跨頁固定（D35）：刻度在左、開孔固定，A 由開孔往左長、B 往右長；單槽的物體放在 A 的位置。
    畫布下方 1/4 留給兩物體接觸示意（D39）。 */
+// 左下水位模型說明卡的完整高度（三行版），fitAll 實測；沒有說明卡時為 0。
+// 熱平衡頁的卡只有一行，但照三行版讓位，水槽刻度才不會切頁就跳（D35 位置跨頁固定）
+let noteH = 0;
 function tankGeo(W, H){
-  const stripTop = Math.round(H * 0.75), cut = stripTop - 30, y0 = cut - 44;
-  // 上方留給物體名稱、讀數與「已達熱平衡」兩列文字，文字隨 U 放大，留白也要跟著放大
+  const stripTop = Math.round(H * 0.75), cut = stripTop - 30;
+  /* 0 °C 線以下原本留 44px 給漸層槽底與開孔；說明卡放在開孔下方（D99）：卡頂離 0 °C 線 34px，
+     讓開孔（py±8）與刻度「0」。卡片只蓋到 0 °C 以下的漸層槽底，那段不表示任何量（D38）。
+     不改成「槽區往右讓出卡寬」：iPad 1180 寬時槽寬會從約 22px 被壓到 9px */
+  const y0 = Math.min(cut - 44, stripTop - 4 - noteH - 34);
+  // 上方留給物體名稱、讀數兩列文字，文字隨 U 放大，留白也要跟著放大
   const y100 = Math.min(y0 - 60, Math.round(78 + 44 * (U - 1)));
   const Y = T => y100 + (100 - T) / 100 * (y0 - y100);
   const scaleX = 48, slotL = 62, pg = 48;
@@ -642,7 +867,7 @@ function drawScale(ctx, G){
 }
 function drawGrid(ctx, G, x2){
   ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath();
-  for (let T = 0; T <= 100; T += 20){ ctx.moveTo(G.scaleX, G.Y(T)); ctx.lineTo(x2, G.Y(T)); }
+  for (let T = 20; T <= 100; T += 20){ ctx.moveTo(G.scaleX, G.Y(T)); ctx.lineTo(x2, G.Y(T)); }   // 只留 20～100（D102）
   ctx.stroke();
 }
 /* 一個物體＝一組並排的槽：外框實線、同物體槽與槽之間虛線（D34）。
@@ -673,19 +898,11 @@ function drawBody(ctx, x0, ws, G, T, wall){
   ctx.beginPath(); ctx.moveTo(x0 - 9, yL); ctx.lineTo(x1 + 9, yL); ctx.stroke();
   return x1;
 }
-/* 「熱能」標在液體裡（D59）。槽太窄（鐵）放不下時移到外側：A 往左、B 往右，避開中間的開孔 */
-function labelEnergy(ctx, x0, x1, G, T, side){
-  ctx.font = font(400, 13);
-  const s = '熱能', tw = ctx.measureText(s).width, y = G.Y(T) + 16 * U;
-  if (x1 - x0 >= tw + 12) txt(ctx, s, (x0 + x1) / 2, y, {a:'center', s:13, c:C.t1});
-  else if (side === 'A') txt(ctx, s, x0 - 14, y, {a:'right', s:13, c:C.t1});
-  else txt(ctx, s, x1 + 14, y, {s:13, c:C.t1});
-}
 /* 流動箭號的相位：只在播放時前進，速度 chevV 跟流量（溫差×導熱快慢）成正比，
    暫停時箭號停住，學生看得出「現在沒有在流」 */
 let chev = 0, chevV = 0;
-/* 溫差小於這個值＝已平衡：兩邊讀數取整後相同，流動箭號消失與「已達熱平衡」出現用同一個門檻，
-   否則會出現「已達熱平衡」與箭號同時在畫面上的矛盾 */
+/* 溫差小於這個值＝已平衡：兩邊讀數取整後相同，流動箭號消失與資訊卡改成「達熱平衡」用同一個門檻，
+   否則會出現「達熱平衡」與箭號同時在畫面上的矛盾 */
 const EQ_EPS = 0.5;
 /* 開孔：兩槽之間、0 °C 以下的虛線通道。虛線表示抽象連結，連的是模型不是物體（設計稿難題 3）。
    D＝TA−TB，箭號由高水位指向低水位 */
@@ -706,11 +923,99 @@ function drawPipe(ctx, G, ph, D){
     }
     ctx.stroke();
   }
-  txt(ctx, '熱量', G.xc, G.cut + 16 * U, {a:'center', c:C.t2});   // D59：流過開孔的＝熱量
+  // 開孔下方原本標「熱量」（D59），已依 D94 移除
+}
+/* ── 能量塊（D78–D81、D95）──
+   能量塊表示總熱能，但只給「多、少」的印象，不暗示數學式關係（D95）：塊在方塊裡慢慢亂飄、
+   不排格子，畫面也不公布一塊代表多少，學生數不出比例。塊數規則在 chunkCounts()（PHYSICS 區塊）。
+   傳熱時，失去熱能的方塊交出最靠近接觸面的那一塊，飛進對方靠接觸面的一側：路線一定穿過接觸面 */
+const CHUNK_FLY = 0.5, CHUNK_GAP = 0.15, CHUNK_DRIFT = 3;   // 飛 0.5 秒；出發間隔 ≥ 0.15 秒；亂飄 3 px／秒（使用者指定，D104）
+const chunkAnim = {t1:null, d:null, s:null};
+// u、v 是塊在方塊內的相對位置（0～1），方塊變寬變窄時塊跟著縮放，不會跑出框
+const newChunk = (u = Math.random()) => ({u, v:Math.random(), a:Math.random() * Math.PI * 2});
+function fitChunks(list, n){ while (list.length > n) list.pop(); while (list.length < n) list.push(newChunk()); }
+// 塊的大小依方塊面積與「這一輪最多會有幾塊」決定，整輪不變，塊數變動時其他塊不會跟著變大變小
+const chunkSize = (w, h, cap) => Math.max(7, Math.min(14, Math.floor(Math.sqrt(w * h / Math.max(1, cap)) * 0.8)));
+function drawChunk(ctx, x, y, s){
+  rrect(ctx, x - s / 2, y - s / 2, s, s, Math.min(3, s / 4));
+  ctx.fillStyle = C.liquid; ctx.strokeStyle = C.liquidEdge; ctx.lineWidth = 1; ctx.fill(); ctx.stroke();
+  if (s < 9) return;
+  // 塊內的字固定跟著塊的大小，不乘 U（同徽章，否則大屏會撐破）
+  ctx.font = `700 ${Math.round(s * 0.7)}px ${FONT_STACK}`;
+  ctx.fillStyle = C.t1; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('能', x, y + 0.5);
+}
+/* 播放中：顯示塊數一次一塊地追上目標，每塊飛 CHUNK_FLY 秒。
+   沒在播放（暫停、重設、改條件、切頁）：直接跳到目標，不留飛到一半的塊。
+   第一次畫（含播放中才打開「顯示能量符號」，開關會把 chunkAnim 清空）直接就位，否則空方塊永遠等不到塊飛進來 */
+function stepChunks(page, target){
+  const now = performance.now() / 1000;
+  let a = chunkAnim[page];
+  if (!a){
+    a = chunkAnim[page] = {blk:[[], []], fly:[], last:-Infinity, prev:now};
+    fitChunks(a.blk[0], target[0]); fitChunks(a.blk[1], target[1]);
+  }
+  if (!running){ a.fly = []; fitChunks(a.blk[0], target[0]); fitChunks(a.blk[1], target[1]); return a; }
+  for (const f of a.fly) if (now - f.t0 >= CHUNK_FLY) a.blk[f.to].push(f.land);
+  a.fly = a.fly.filter(f => now - f.t0 < CHUNK_FLY);
+  const inbound = k => a.fly.filter(f => f.to === k).length;
+  // 目標是「落地後的塊數」：已在飛的算進目的地，才不會同一塊熱量派出兩塊
+  for (const [from, to] of [[0, 1], [1, 0]]){
+    if (now - a.last < CHUNK_GAP) break;
+    const L = a.blk[from];
+    if (L.length > target[from] && a.blk[to].length + inbound(to) < target[to]){
+      let bi = 0;   // A 的接觸面在右（u＝1）、B 在左（u＝0）：交出離接觸面最近的那一塊
+      for (let i = 1; i < L.length; i++) if (from === 0 ? L[i].u > L[bi].u : L[i].u < L[bi].u) bi = i;
+      const c = L.splice(bi, 1)[0];
+      a.fly.push({from, to, c, land:newChunk(to === 1 ? Math.random() * 0.25 : 1 - Math.random() * 0.25), t0:now});
+      a.last = now;
+    }
+  }
+  return a;
+}
+// 單槽（D98）：加熱中熱能只增不減，塊只會從火焰飛進物體裡。blk[0]＝物體裡的塊；落點在下半部（從底下加熱）
+function stepChunks1(target){
+  const now = performance.now() / 1000;
+  let a = chunkAnim.s;
+  if (!a){ a = chunkAnim.s = {blk:[[]], fly:[], last:-Infinity, prev:now}; fitChunks(a.blk[0], target); }
+  if (!running){ a.fly = []; fitChunks(a.blk[0], target); return a; }
+  for (const f of a.fly) if (now - f.t0 >= CHUNK_FLY) a.blk[0].push(f.land);
+  a.fly = a.fly.filter(f => now - f.t0 < CHUNK_FLY);
+  if (now - a.last >= CHUNK_GAP && a.blk[0].length + a.fly.length < target){
+    const land = newChunk(); land.v = 0.6 + Math.random() * 0.4;
+    a.fly.push({land, t0:now});
+    a.last = now;
+  }
+  return a;
+}
+// b＝{x, y, w, h, s}：塊可活動的框與塊的邊長。塊中心離框邊至少 s/2＋3，不壓到框線
+function chunkPos(b, c){
+  const p = b.s / 2 + 3;
+  return [b.x + p + c.u * Math.max(0, b.w - 2 * p), b.y + p + c.v * Math.max(0, b.h - 2 * p)];
+}
+// 亂飄用真實經過的秒數：暫停時照樣飄（同粒子，D55），只是不再有塊飛進飛出
+function chunkClock(an){
+  const now = performance.now() / 1000, dt = Math.min(0.1, Math.max(0, now - an.prev));
+  an.prev = now;
+  return [now, dt];
+}
+function driftChunks(ctx, list, b, dt){
+  const p = b.s / 2 + 3, sx = Math.max(1, b.w - 2 * p), sy = Math.max(1, b.h - 2 * p);
+  for (const c of list){
+    c.a += (Math.random() - 0.5) * 4 * dt;
+    c.u += Math.cos(c.a) * CHUNK_DRIFT * dt / sx; c.v += Math.sin(c.a) * CHUNK_DRIFT * dt / sy;
+    if (c.u < 0){ c.u = 0; c.a = Math.PI - c.a; } else if (c.u > 1){ c.u = 1; c.a = Math.PI - c.a; }
+    if (c.v < 0){ c.v = 0; c.a = -c.a; } else if (c.v > 1){ c.v = 1; c.a = -c.a; }
+    const [x, y] = chunkPos(b, c); drawChunk(ctx, x, y, b.s);
+  }
+}
+// 飛行中的塊：頭尾放慢（smoothstep），看得出起點與終點；中段往上拱一點
+function flyPos(p0, p1, e){
+  const k = e * e * (3 - 2 * e);
+  return [p0[0] + (p1[0] - p0[0]) * k, p0[1] + (p1[1] - p0[1]) * k - Math.sin(Math.PI * e) * 6];
 }
 /* 畫布下方 1/4：兩物體接觸示意（D39）。方塊寬只隨質量線性變化（D54），填色依溫度；
-   接觸面的箭號由熱指向冷，溫度相等時消失 */
-function drawContact(ctx, W, H, G, A, B, D){
+   接觸面的箭號由熱指向冷，溫度相等時消失。方塊裡放能量塊（D78） */
+function drawContact(ctx, W, H, G, A, B, D, page, Te){
   ctx.strokeStyle = '#E2E5EA'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, G.stripTop + 0.5); ctx.lineTo(W, G.stripTop + 0.5); ctx.stroke();
   const sh = H - G.stripTop, bh = Math.max(24, Math.min(64, sh * 0.44)), by = G.stripTop + (sh - bh) / 2 + 2;
@@ -721,6 +1026,20 @@ function drawContact(ctx, W, H, G, A, B, D){
     ctx.fillStyle = tempCol(o.T); ctx.strokeStyle = C.t2; ctx.lineWidth = 2.5; ctx.fill(); ctx.stroke();
   }
   badge(ctx, xc - wa - 16, by + bh / 2, 'A'); badge(ctx, xc + wb + 16, by + bh / 2, 'B');
+  if (state.lay.chunks){
+    // 這一輪最多幾塊：傳熱是單向的，所以取「初溫」與「平衡溫度」兩端的較大者
+    const T0 = page === 't1' ? [state.t1.A, state.t1.B] : [state.d.A.T0, state.d.B.T0];
+    const n0 = chunkCounts({...A, T:T0[0]}, {...B, T:T0[1]}), nE = chunkCounts({...A, T:Te}, {...B, T:Te});
+    const cap = [Math.max(n0[0], nE[0]), Math.max(n0[1], nE[1])];   // 「顯示能量符號」（D112）
+    const an = stepChunks(page, chunkCounts(A, B));
+    const [now, dt] = chunkClock(an);
+    const boxes = [{x:xc - wa, y:by, w:wa, h:bh, s:chunkSize(wa, bh, cap[0])}, {x:xc, y:by, w:wb, h:bh, s:chunkSize(wb, bh, cap[1])}];
+    for (let k = 0; k < 2; k++) driftChunks(ctx, an.blk[k], boxes[k], dt);
+    for (const f of an.fly){
+      const [x, y] = flyPos(chunkPos(boxes[f.from], f.c), chunkPos(boxes[f.to], f.land), Math.min(1, (now - f.t0) / CHUNK_FLY));
+      drawChunk(ctx, x, y, Math.min(boxes[0].s, boxes[1].s));
+    }
+  }
   if (Math.abs(D) < EQ_EPS) return;
   const dir = Math.sign(D), sp = 12, span = 36, off = (((chev * 0.6) % sp) + sp) % sp, cy = by + bh / 2;
   for (const [c, lw] of [['#FFFFFF', 6], [C.t1, 2.5]]){
@@ -731,17 +1050,12 @@ function drawContact(ctx, W, H, G, A, B, D){
     }
     ctx.stroke(); ctx.restore();
   }
-  txt(ctx, '熱', xc, by - 11 * U, {a:'center', w:700, s:13, c:C.t1});
+  // 箭號上方原本標「熱」，已依 D105 移除
 }
-/* 答案型的水平參考線與右端標示（平衡溫度、兩初溫平均）。兩條靠太近時標示上下錯開，線不動 */
-function refLines(ctx, W, x1, x2, Y, lines){
-  for (const l of lines) dashLine(ctx, x1, x2, Y(l.T), l.c, l.d, 2);
-  const ys = lines.map(l => Y(l.T) + 14 * U);
-  if (ys.length === 2 && Math.abs(ys[0] - ys[1]) < 22 * U){
-    const m = (ys[0] + ys[1]) / 2, up = ys[0] <= ys[1] ? 0 : 1;
-    ys[up] = m - 11 * U; ys[1 - up] = m + 11 * U;
-  }
-  lines.forEach((l, i) => tag(ctx, l.s, W - 8, ys[i], {a:'right', c:l.c}));
+/* 答案型的水平參考線與右端標示。兩頁都只剩「平衡溫度」一條（D113），原本兩條靠太近時上下錯開的處理已拿掉 */
+function refLine(ctx, W, x1, x2, Y, T){
+  dashLine(ctx, x1, x2, Y(T), C.t1, [3, 4], 2);
+  tag(ctx, '平衡溫度 ' + fmt(T, DEC.temp) + ' °C', W - 8, Y(T) + 14 * U, {a:'right', c:C.t1});
 }
 // 物體名稱錨在開孔兩側（位置跨頁固定），不隨槽寬置中
 function nameAB(ctx, G, a, b){
@@ -753,98 +1067,88 @@ function nameAB(ctx, G, a, b){
   badge(ctx, G.p2 + 6, y, 'B');
   txt(ctx, b, G.p2 + 20, y, {w:700, s:13, c:C.t1});
 }
-/* 雙物體（熱平衡、比熱雙槽）。under(G, xA, eB) 畫在液體之上、標示之下（放熱＝吸熱網底） */
-function drawPair(ctx, W, H, A, B, pipeW, D, under){
+/* 液面接到右側圖表上同一物體目前那一點（D106）：縱軸已對齊水槽刻度（D66），所以是同一高度的一條水平虛線，
+   模擬畫布這一段從液面拉到畫布右緣，圖表那一段在 drawChart() 從畫布左緣拉到點。
+   圖表沒對齊時（<900 浮出面板、畫布太矮）兩段都不畫，否則虛線會指向錯的高度 */
+function chartAligned(){ return chW > 0 && !!chartFrame(chW, chH, timeKey()).al; }
+function levelLink(ctx, x, y, W){ if (chartAligned()) dashLine(ctx, x, W, y, C.axis, [3, 4], 1.5); }
+/* 雙物體（熱平衡、比熱兩物接觸）。
+   names 不給就用「材料 質量」；熱平衡頁兩邊相同，只給空字串，名稱改標在角落（D107） */
+function drawPair(ctx, W, H, A, B, pipeW, D, names){
   const G = tankGeo(W, H);
   const wa = slotWidths(A, G.u), wb = slotWidths(B, G.u);
   const xA = G.p1 - wa.reduce((a, b) => a + b, 0);
   drawGrid(ctx, G, G.p2 + 6 * G.u + 10); drawScale(ctx, G);
   drawBody(ctx, xA, wa, G, A.T, C.wall);
   const eB = drawBody(ctx, G.p2, wb, G, B.T, C.wall);
-  if (under) under(G, xA, eB);
   drawPipe(ctx, G, pipeW, D);
-  labelEnergy(ctx, xA, G.p1, G, A.T, 'A'); labelEnergy(ctx, G.p2, eB, G, B.T, 'B');
-  nameAB(ctx, G, A.mat + ' ' + A.mass + ' g', B.mat + ' ' + B.mass + ' g');
-  tag(ctx, fmt(A.T, 0) + ' °C', G.p1 + 8, G.Y(A.T) - 13 * U, {w:700, s:13, c:C.t1});
-  tag(ctx, fmt(B.T, 0) + ' °C', eB + 12, G.Y(B.T) - 13 * U, {w:700, s:13, c:C.t1});
+  levelLink(ctx, G.p1 + 9, G.Y(A.T), W); levelLink(ctx, eB + 9, G.Y(B.T), W);
+  const [na, nb] = names || [A.mat + ' ' + A.mass + ' g', B.mat + ' ' + B.mass + ' g'];
+  nameAB(ctx, G, na, nb);
+  tag(ctx, fmt(A.T, DEC.temp) + ' °C', G.p1 + 8, G.Y(A.T) - 13 * U, {w:700, s:13, c:C.t1});
+  tag(ctx, fmt(B.T, DEC.temp) + ' °C', eB + 12, G.Y(B.T) - 13 * U, {w:700, s:13, c:C.t1});
   return {G, xA, eB};
 }
 /* 熱平衡：兩物體同材料同質量（D12），平衡溫度＝兩初溫平均。
-   開孔粗細＝導熱快慢，只改變趨近速度、不改最後水位 */
+   導熱快慢只改變趨近速度（與箭號流速）、不改最後水位；開孔粗細固定（D93） */
 function drawT1(ctx, W, H){
   const o = state.t1, r = t1At(o, state.time.t1), L = state.lay;
   const A = {mat:'水', mass:100, T:r.TA}, B = {mat:'水', mass:100, T:r.TB};
-  const {G, xA, eB} = drawPair(ctx, W, H, A, B, PIPE_W[o.k], r.D);
+  const {G, xA, eB} = drawPair(ctx, W, H, A, B, PIPE_W, r.D, ['', '']);
+  txt(ctx, 'A、B：100 g 水', 8, Math.max(12 * U, G.top - 44 * U), {w:700, s:13, c:C.t1});
   chevV = Math.min(160, 2.5 * K1[o.k] * Math.abs(r.D) + 4);
-  if (L.te1) refLines(ctx, W, xA - 12, eB + 12, G.Y, [{T:r.Te, s:'平衡溫度 ' + fmt(r.Te, 0) + ' °C', c:C.t1, d:[3, 4]}]);
-  if (L.eq1 && Math.abs(r.D) < EQ_EPS) tag(ctx, '已達熱平衡', G.xc, G.top - 40 * U, {a:'center', w:700, s:13, c:C.ok, box:C.ok});
-  drawContact(ctx, W, H, G, A, B, r.D);
+  if (L.te1) refLine(ctx, W, xA - 12, eB + 12, G.Y, r.Te);
+  // 「達熱平衡」只在資訊卡顯示，畫面中央不再跳出帶框的標示（D101）；接觸圖一律顯示（D114）
+  drawContact(ctx, W, H, G, A, B, r.D, 't1', r.Te);
 }
-/* 比熱雙槽：槽寬＝MS，所以兩邊液面變化量不同，但網底面積（放熱＝吸熱）相等 */
+/* 比熱兩物接觸：槽寬＝MS，所以兩邊液面變化量不同，但變化面積（放熱＝吸熱）相等 */
 function drawDouble(ctx, W, H){
-  const o = state.d, r = dAt(o, state.time.d), L = state.lay;
+  const o = state.d, r = dAt(o, state.time.d);
   const A = {...o.A, T:r.TA}, B = {...o.B, T:r.TB};
-  const {G, xA, eB} = drawPair(ctx, W, H, A, B, PIPE_W['中'], r.D, (G, xA, eB) => {
-    if (!L.area) return;
-    for (const [x0, x1, T, T0] of [[xA, G.p1, r.TA, o.A.T0], [G.p2, eB, r.TB, o.B.T0]]){
-      if (Math.abs(T - T0) > 0.2){
-        const y1 = G.Y(Math.max(T, T0)), y2 = G.Y(Math.min(T, T0));
-        hatch(ctx, x0, y1, x1 - x0, y2 - y1, C.t2);
-      }
-      dashLine(ctx, x0 - 9, x1 + 9, G.Y(T0), C.t2, [4, 3], 2);   // 初始液面
-    }
-  });
+  const {G, xA, eB} = drawPair(ctx, W, H, A, B, PIPE_W, r.D);
   chevV = Math.min(160, 2 * Math.abs(r.D) + 4);
-  if (L.heat && Math.abs(r.Q) > 0.5){
-    // 放熱與吸熱兩個數字一律中性色（D42），靠「放／吸」二字與位置分辨，不靠 A／B 的顏色
-    const q = Math.round(Math.abs(r.Q)) + ' cal', aOut = r.Q > 0, y = G.top - 36 * U;
-    tag(ctx, (aOut ? '放熱 ' : '吸熱 ') + q, G.p1 + 4, y, {a:'right', w:700, s:13, c:C.t1});
-    tag(ctx, (aOut ? '吸熱 ' : '放熱 ') + q, G.p2 - 4, y, {w:700, s:13, c:C.t1});
-  }
-  const lines = [], avg = (o.A.T0 + o.B.T0) / 2;
-  if (L.avg) lines.push({T:avg, s:'兩初溫平均 ' + fmt(avg, 0) + ' °C', c:C.t2, d:[8, 5]});
-  if (L.te2) lines.push({T:r.Te, s:'平衡溫度 ' + fmt(r.Te, 0) + ' °C', c:C.t1, d:[3, 4]});
-  if (lines.length) refLines(ctx, W, xA - 12, eB + 12, G.Y, lines);
-  drawContact(ctx, W, H, G, A, B, r.D);
+  // 答案型開關只留「顯示平衡溫度」（D113）：放熱與吸熱、兩初溫平均、等量熱量區域已刪
+  if (state.lay.te2) refLine(ctx, W, xA - 12, eB + 12, G.Y, r.Te);
+  drawContact(ctx, W, H, G, A, B, r.D, 'd', r.Te);
 }
-// 單槽這一次加熱的顏色＝序列色中還沒被疊圖用掉的第一個，槽壁與圖表那條線同色
+// 單槽這一次加熱的顏色＝序列色中還沒被疊圖用掉的第一個。只用在右側圖表的曲線，水槽一律中性色（D108）
 function curColor(){
   const used = state.s.hist.map(h => h.color);
   return C.ser.find(c => !used.includes(c)) || C.ser[0];
 }
-/* 單槽：物體在 A 的位置、真實器材在 B 的位置（D35）。
-   槽壁用本次加熱的序列色，對應右欄那條線 */
+/* 單槽：物體在 A 的位置、真實器材在 B 的位置（D35）。槽壁、名稱、讀數一律中性色（D108） */
 function drawSingle(ctx, W, H){
-  const G = tankGeo(W, H), o = state.s, t = state.time.s, col = curColor();
+  const G = tankGeo(W, H), o = state.s, t = state.time.s;
   const dT = sDT(o.mass * SPEC_HEAT[o.mat], t), T = T_START + dT, heating = running && t < maxT('s') - 1e-9;
   const ws = slotWidths(o, G.u), gw = ws.reduce((a, b) => a + b, 0), xA = G.p1 - gw, ax = xA + gw / 2;
-  drawGrid(ctx, G, G.p1 + 10); drawScale(ctx, G);
-  drawBody(ctx, xA, ws, G, T, col);
-  dashLine(ctx, xA - 9, G.p1 + 9, G.Y(T_START), C.t2, [4, 3], 1.5);
-  labelEnergy(ctx, xA, G.p1, G, T, 'A');
+  drawScale(ctx, G);
+  drawBody(ctx, xA, ws, G, T, C.wall);
+  // 單槽只留起始溫度這一條橫線（D67）：它就是讀 ΔT 的基準，也對齊右側圖表的 ΔT＝0；其他溫度靠刻度讀
+  dashLine(ctx, G.scaleX, G.p1 + 9, G.Y(T_START), C.t2, [4, 3], 1.5);
   // 名稱放在「加入熱量」箭號上方：同一 x 上下錯開，箭號才不會穿過字
-  txt(ctx, o.mat + ' ' + o.mass + ' g', ax, G.top - 44 * U, {a:'center', w:700, s:13, c:SER_TXT[col]});
-  tag(ctx, fmt(T, 0) + ' °C', G.p1 + 8, G.Y(T) - 13 * U, {w:700, s:13, c:SER_TXT[col]});
+  txt(ctx, o.mat + ' ' + o.mass + ' g', ax, G.top - 44 * U, {a:'center', w:700, s:13, c:C.t1});
+  tag(ctx, fmt(T, DEC.temp) + ' °C', G.p1 + 8, G.Y(T) - 13 * U, {w:700, s:13, c:C.t1});
   if (dT > 6) txt(ctx, '起始 20 °C', G.p1 + 8, G.Y(T_START) + 12 * U, {c:C.t2});
   if (heating){
     arrowDown(ctx, ax, G.top - 30 * U, G.top - 3, C.flame);
     txt(ctx, '加入熱量', ax + 10, G.top - 18 * U, {c:C.t2});   // D59：單槽由這支箭號擔任「熱量」
   }
-  drawApparatus(ctx, W, H, G, o, T, t > 0 && t < maxT('s') - 1e-6 || running);
+  drawApparatus(ctx, W, H, G, o, T, heating);   // 暫停＝熄火（D83）
 }
 /* 真實器材：熱源、燒杯、溫度計三樣（D30），放在 B 的位置。溫度計刻度與水槽共用 Y(T)，
    虛線把槽的液面接到溫度計的液柱頂，兩種表徵讀同一個溫度 */
 function drawApparatus(ctx, W, H, G, o, T, flame){
   const Y = G.Y, rx = G.p2, rw = Math.max(90, W - rx - 8), bw = Math.min(120, rw * 0.62), bx = rx + (rw - bw) / 2;
   const bot = Math.min(G.stripTop, H - 92), bh = Math.max(48, Math.min(96, bot - Y(40))), rim = bot - bh;
-  ctx.fillStyle = rgba(C.glass, 0.3); ctx.fillRect(bx, rim, bw, bh);
-  // 鐵塊邊長隨質量的立方根，溫度計插在鐵塊裡（C15）
-  const sd = bw * 0.3 * Math.cbrt(o.mass / 100);
-  if (o.mat === '鐵'){
+  // 鐵塊邊長隨質量的立方根，溫度計插在鐵塊裡（C15）；鐵直接放在火焰上，不隔燒杯（D71）
+  // 液面高度的換算式只寫這一處：燒杯刻度（F4）也用它，水的液面才會正好落在對應的刻度上
+  const lvl = m => bh * (0.22 + 0.6 * m / MASS_MAX);
+  const sd = bw * 0.3 * Math.cbrt(o.mass / 100), iron = o.mat === '鐵', hL = lvl(o.mass);
+  if (!iron){ ctx.fillStyle = rgba(C.glass, 0.3); ctx.fillRect(bx, rim, bw, bh); }
+  if (iron){
     rrect(ctx, bx + bw / 2 - sd * 0.75, bot - sd - 3, sd * 1.5, sd, 6);
     ctx.fillStyle = C.metal; ctx.strokeStyle = C.wall; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
   } else {
-    const hL = bh * (0.22 + 0.6 * o.mass / MASS_MAX);
     if (o.mat === '水'){
       const gr = ctx.createLinearGradient(0, bot - hL, 0, bot);
       gr.addColorStop(0, C.waterTop); gr.addColorStop(1, C.waterBot); ctx.fillStyle = gr;
@@ -853,13 +1157,24 @@ function drawApparatus(ctx, W, H, G, o, T, flame){
     ctx.strokeStyle = o.mat === '水' ? C.waterLine : C.axis; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(bx, bot - hL); ctx.lineTo(bx + bw, bot - hL); ctx.stroke();
   }
-  ctx.strokeStyle = C.wall; ctx.lineWidth = 3; ctx.beginPath();
-  ctx.moveTo(bx - 4, rim); ctx.lineTo(bx, rim + 4); ctx.lineTo(bx, bot - 6); ctx.quadraticCurveTo(bx, bot, bx + 6, bot);
-  ctx.lineTo(bx + bw - 6, bot); ctx.quadraticCurveTo(bx + bw, bot, bx + bw, bot - 6); ctx.lineTo(bx + bw, rim); ctx.stroke();
-  ctx.lineWidth = 2; ctx.beginPath();
-  for (let i = 1; i <= 3; i++){ ctx.moveTo(bx + bw - 14, bot - i * bh / 4.2); ctx.lineTo(bx + bw, bot - i * bh / 4.2); }
-  ctx.stroke();
-  const tx0 = bx + bw * 0.36, bulb = bot - (o.mat === '鐵' ? sd / 2 + 3 : 16);
+  if (!iron){
+    // 底角圓角 12（DESIGN_SPEC 第 3 節「燒杯／量杯／量筒的畫法」，2026-10-08 第三輪 F3；原本 6）
+    ctx.strokeStyle = C.wall; ctx.lineWidth = 3; ctx.beginPath();
+    ctx.moveTo(bx - 4, rim); ctx.lineTo(bx, rim + 4); ctx.lineTo(bx, bot - 12); ctx.quadraticCurveTo(bx, bot, bx + 12, bot);
+    ctx.lineTo(bx + bw - 12, bot); ctx.quadraticCurveTo(bx + bw, bot, bx + bw, bot - 12); ctx.lineTo(bx + bw, rim); ctx.stroke();
+    // 刻度依預計盛裝的體積畫（F4，**A**「F4依照預計裝的體積畫」、Q18）：這個燒杯裝 50–300 g 的水或甘油，
+    // 每 50 mL（＝質量步進器的一格）一條主刻度，位置用液面同一條換算式。原本是隨意間距的 3 條
+    ctx.lineWidth = 2; ctx.beginPath();
+    for (let v = MASS_STEP; v <= MASS_MAX; v += MASS_STEP){ const y = bot - lvl(v); ctx.moveTo(bx + bw - 14, y); ctx.lineTo(bx + bw, y); }
+    ctx.stroke();
+  }
+  // 能量塊在物體裡（D98）：水、甘油是燒杯裡的液體，鐵是鐵塊本身。畫在溫度計之前，溫度計蓋在塊上面
+  const cb = iron ? {x:bx + bw / 2 - sd * 0.75, y:bot - sd - 3, w:sd * 1.5, h:sd} : {x:bx, y:bot - hL, w:bw, h:hL};
+  if (state.lay.chunks) drawChunks1(ctx, cb, o, T, [bx + bw / 2, bot + 20]);   // 「顯示能量符號」（D112）
+  const tx0 = bx + bw * 0.36, bulb = bot - (iron ? sd / 2 + 3 : 16);
+  // 液面虛線：接到溫度計的液柱頂，圖表對齊時再一路接到右側圖表上的點（D106）；先畫，溫度計的白底蓋在上面
+  if (chartAligned()) levelLink(ctx, G.p1 + 2, Y(T), W);
+  else dashLine(ctx, G.p1 + 2, tx0 - 8, Y(T), C.axis, [3, 4], 1.5);
   rrect(ctx, tx0 - 6, Y(100) - 16, 12, bulb - Y(100) + 16, 6);
   ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = C.wall; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
   ctx.fillStyle = C.red; ctx.fillRect(tx0 - 2, Y(T), 4, bulb - Y(T));
@@ -867,8 +1182,18 @@ function drawApparatus(ctx, W, H, G, o, T, flame){
   ctx.strokeStyle = C.wall; ctx.lineWidth = 1.5; ctx.beginPath();
   for (let v = 0; v <= 100; v += 20){ ctx.moveTo(tx0 + 6, Y(v)); ctx.lineTo(tx0 + 11, Y(v)); }
   ctx.stroke();
-  dashLine(ctx, G.p1 + 2, tx0 - 8, Y(T), C.axis, [3, 4], 1.5);
   drawLamp(ctx, bx + bw / 2, bot + 36, flame);
+}
+/* 單槽的能量塊：塊的大小取這個物體到 100 °C 時的塊數，整輪不變。src＝火焰中心，飛行中的塊從這裡出發 */
+function drawChunks1(ctx, b, o, T, src){
+  b.s = chunkSize(b.w, b.h, chunkCount({...o, T:100}));
+  const an = stepChunks1(chunkCount({...o, T}));
+  const [now, dt] = chunkClock(an);
+  driftChunks(ctx, an.blk[0], b, dt);
+  for (const f of an.fly){
+    const [x, y] = flyPos(src, chunkPos(b, f.land), Math.min(1, (now - f.t0) / CHUNK_FLY));
+    drawChunk(ctx, x, y, b.s);
+  }
 }
 // 熱源（酒精燈）：頁籤 2 單槽與頁籤 3 共用同一個造型（D30）
 function drawLamp(ctx, cx, top, on){
@@ -891,10 +1216,11 @@ function drawSim(){
   if (k === 't1') drawT1(ctx, simW, simH);
   else if (k === 'd') drawDouble(ctx, simW, simH);
   else if (k === 's') drawSingle(ctx, simW, simH);
+  else if (k === 'x') drawExpansion(ctx, simW, simH);
   else drawParticles(ctx, simW, simH);
 }
 
-/* ── 熱與粒子 ──
+/* ── 三態變化 ──
    粒子由「溫度＋相變進度」兩個狀態值驅動，不是分子動力學（D5）。座標在 PW×PH 的粒子空間，
    畫的時候再乘縮放係數；粒子半徑 PR 固定不變（熱脹冷縮是間距改變，不是粒子變大）。
    vib 是真實經過的秒數，暫停時照樣前進：熱運動不因暫停而停止（D55、D60） */
@@ -903,7 +1229,7 @@ let parts = [], vib = 0;
 function initParts(){
   parts = [];
   for (let i = 0; i < NP; i++)
-    parts.push({i, ph:'s', x:0, y:0, a:Math.random() * Math.PI * 2, f1:Math.random() * Math.PI * 2, f2:Math.random() * Math.PI * 2});
+    parts.push({i, ph:'s', x:0, y:0, a:Math.random() * Math.PI * 2, s:1, f1:Math.random() * Math.PI * 2, f2:Math.random() * Math.PI * 2});
   syncParts(true);
 }
 function lay3(){
@@ -943,6 +1269,7 @@ function syncParts(force){
     } else if (np === 'g'){
       if (p.ph === 'l' && !force){ p.y = Math.max(PR, L.bandTop - PR - 1); p.a = -Math.PI * (0.15 + Math.random() * 0.7); }   // 從液面往上飛出
       else { p.x = PR + Math.random() * (PW - 2 * PR); p.y = PR + Math.random() * Math.max(1, (L.nl > 0 ? L.bandTop : PH) - 2 * PR); p.a = Math.random() * Math.PI * 2; }
+      p.s = 1;
     }
     p.ph = np;
   }
@@ -958,7 +1285,8 @@ function stepParts(dt){
   for (const p of parts){
     if (p.ph === 's') continue;
     if (p.ph === 'l') p.a += (Math.random() - 0.5) * 50 * dt;   // 液體：方向一直亂轉，擠在一起流動
-    p.x += Math.cos(p.a) * v * dt; p.y += Math.sin(p.a) * v * dt;
+    const vp = p.ph === 'g' ? v * p.s : v;
+    p.x += Math.cos(p.a) * vp * dt; p.y += Math.sin(p.a) * vp * dt;
     const y0 = p.ph === 'l' ? L.bandTop + PR : gTop, y1 = p.ph === 'l' ? PH - PR : gBot;
     if (p.x < PR){ p.x = PR; p.a = Math.PI - p.a; }
     if (p.x > PW - PR){ p.x = PW - PR; p.a = Math.PI - p.a; }
@@ -975,30 +1303,56 @@ function stepParts(dt){
     const p = Lq[a], q = Lq[b], dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy) || 0.01;
     if (d < 2 * PR){ const m = (2 * PR - d) / 2; p.x -= dx / d * m; p.y -= dy / d * m; q.x += dx / d * m; q.y += dy / d * m; }
   }
+  /* 氣體粒子互撞＝等質量彈性碰撞（D76）：沿連心線交換速度分量，切向分量不變。
+     p.s 是相對速率；碰撞後有快有慢，最後把平均拉回 1，平均速率仍只由溫度決定（D5） */
+  const Gs = parts.filter(p => p.ph === 'g');
+  for (let a = 0; a < Gs.length; a++) for (let b = a + 1; b < Gs.length; b++){
+    const p = Gs[a], q = Gs[b], dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
+    if (d >= 2 * PR || d < 1e-6) continue;
+    const nx = dx / d, ny = dy / d;
+    const pvx = Math.cos(p.a) * p.s, pvy = Math.sin(p.a) * p.s, qvx = Math.cos(q.a) * q.s, qvy = Math.sin(q.a) * q.s;
+    const rel = (pvx - qvx) * nx + (pvy - qvy) * ny;
+    if (rel > 0){   // 正在靠近才交換；已在分開就只推開，免得重疊時連撞兩次又黏回來
+      const ax = pvx - rel * nx, ay = pvy - rel * ny, bx = qvx + rel * nx, by = qvy + rel * ny;
+      p.a = Math.atan2(ay, ax); p.s = Math.hypot(ax, ay); q.a = Math.atan2(by, bx); q.s = Math.hypot(bx, by);
+    }
+    const m = (2 * PR - d) / 2;
+    p.x -= nx * m; p.y -= ny * m; q.x += nx * m; q.y += ny * m;
+  }
+  if (Gs.length){
+    const mean = Gs.reduce((a, p) => a + p.s, 0) / Gs.length;
+    // 極慢的粒子給個下限：速率為 0 會停在原地，看起來像固體
+    for (const p of Gs) p.s = Math.max(0.25, p.s / (mean || 1));
+  }
 }
-/* 放大檢視的尺寸只在這裡算一次（置中與繪製共用）。畫布矮於 260px 改精簡版，
-   省略「固體、液體間距」標示（D45） */
-function pGeo(ctx, W, H){
-  const fw = Math.max(130, Math.min(230, W * 0.34)), px = fw + 34, compact = H < 260;
-  const hdr = compact ? 16 + 12 * U : 20 + 16 * U, ftr = compact ? 8 : 12 + 32 * U;
+/* 放大檢視的尺寸只在這裡算一次（置中與繪製共用）。
+   框底原本留兩列給「固體、液體間距」註記（D75 刪）；標題列的讀數與物態名稱搬進資訊卡（D146），
+   上下都只留一點邊距，高度還給粒子 */
+function pGeo(W, H){
+  const fw = Math.max(130, Math.min(230, W * 0.34)), px = fw + 34;
+  const hdr = 8, ftr = 8;
   const sc = Math.max(0.15, Math.min((W - px - 38) / PW, (H - 16 - hdr - ftr) / PH));
-  // 標題列要同時放得下最寬的讀數與最長的物態名稱：框寬固定預留，開關物態名稱時框不會跳動
-  ctx.font = font(700, 13);
-  const head = 30 + ctx.measureText('00.0 分 · −20 °C').width + 20 + ctx.measureText('液氣共存').width + 12;
-  const pw = Math.min(W - px - 14, Math.max(compact ? 150 : 190, PW * sc + 60, head)), bh = hdr + PH * sc + ftr;
-  return {fw, px, sc, pw, bh, by:Math.max(8, (H - bh) / 2), hdr, compact};
+  const pw = Math.min(W - px - 14, Math.max(H < 260 ? 150 : 190, PW * sc + 60)), bh = hdr + PH * sc + ftr;
+  return {fw, px, sc, pw, bh, by:Math.max(8, (H - bh) / 2), hdr};
 }
 const PHASE_NAME = ['固', '固液共存', '液', '液氣共存', '氣'];   // D48 指定用詞
+let pCardR = 0;   // 左下資訊卡右緣（畫布座標，placeCards 實測最寬內容），器材讓位用（D147）
 function drawParticles(ctx, W, H){
-  const t = state.time.p, L3 = lay3(), f = L3.f, PG = pGeo(ctx, W, H);
+  const t = state.time.p, L3 = lay3(), f = L3.f;
+  /* 整組置中；畫布窄到器材最左緣會壓到左下資訊卡時，整組往右讓出卡寬（D147），
+     放大檢視改用扣掉讓位後的寬度重算，框才不會被擠出右緣 */
+  let PG = pGeo(W, H), gx = (W - (PG.px + PG.pw + 14)) / 2;
+  const need = pCardR + 8 - (12 + PG.fw / 2 - Math.min(128, PG.fw * 0.78) / 2);   // 後項＝未平移時瓶底最左緣
+  if (gx < need){ PG = pGeo(W - need, H); gx = need + Math.max(0, (W - need - (PG.px + PG.pw + 14)) / 2); }
   ctx.fillStyle = C.air; ctx.fillRect(0, 0, W, H);
-  ctx.save(); ctx.translate(Math.max(0, (W - (PG.px + PG.pw + 14)) / 2), 0);
+  ctx.save(); ctx.translate(Math.max(0, gx), 0);
   // 畫布矮時，錐形瓶、酒精燈、氣球整組以瓶底為基準等比縮小，不各自擠壓
   const fw = PG.fw, cx = fw / 2 + 12, Hf = Math.max(H, 340), kf = H / Hf, my = y => H + (y - Hf) * kf;
   const lampTop = Hf - 66, fb = lampTop - 34, fh = Math.min(130, Hf * 0.24), fbw = Math.min(128, fw * 0.78);
   const nw = 26, nh = 34, sh = fb - fh, nt = sh - nh, hL0 = fh * 0.42, hL = hL0 * (1 - f.fg);
   ctx.save(); ctx.translate(cx, H); ctx.scale(kf, kf); ctx.translate(-cx, -Hf);
-  drawLamp(ctx, cx, lampTop, t < MAX_T.p - 1e-6 && (running || t > 0));
+  // 暫停＝熄火（D83）；粒子照樣動（D55），瓶內氣泡與氣球凍結（D60）
+  drawLamp(ctx, cx, lampTop, running && t < MAX_T.p - 1e-6);
   const flask = () => {
     ctx.beginPath(); ctx.moveTo(cx - nw / 2, nt); ctx.lineTo(cx - nw / 2, sh); ctx.lineTo(cx - fbw / 2, fb - 6);
     ctx.quadraticCurveTo(cx - fbw / 2, fb, cx - fbw / 2 + 8, fb); ctx.lineTo(cx + fbw / 2 - 8, fb);
@@ -1044,54 +1398,200 @@ function drawParticles(ctx, W, H){
 
   // 放大檢視：瓶內的放大圈以虛線引到右側檢視框
   const mcx = cx, mcy = my(fb - hL0 * 0.5), mr = Math.max(10, 16 * kf);
-  const {px:bx, sc, pw, bh, by, hdr, compact} = PG;
+  const {px:bx, sc, pw, bh, by, hdr} = PG;
   ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = C.axis; ctx.lineWidth = 1.5; ctx.beginPath();
   ctx.moveTo(mcx + mr * 0.6, mcy - mr * 0.8); ctx.lineTo(bx, by + 8);
   ctx.moveTo(mcx + mr * 0.6, mcy + mr * 0.8); ctx.lineTo(bx, by + bh - 8); ctx.stroke(); ctx.restore();
   ctx.strokeStyle = C.wall; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(mcx, mcy, mr, 0, Math.PI * 2); ctx.stroke();
   rrect(ctx, bx, by, pw, bh, 10); ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = C.wall; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
-  // 與下方曲線目前點同一個記號：空心圓＋時間與溫度
-  const ry = by + (compact ? 15 : 18) * U, rd = fmt(t, 1) + ' 分 · ' + fmt(f.T, 0) + ' °C';
-  txt(ctx, rd, bx + 30, ry, {w:700, s:13, c:C.t1});
-  const rEnd = bx + 30 + ctx.measureText(rd).width;
-  ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = C.pri; ctx.lineWidth = 2.5;
-  ctx.beginPath(); ctx.arc(bx + 18, ry, 5.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // 標題列（空心圓、時間與溫度、物態名稱）已拿掉：溫度與狀態改在左下資訊卡（D144–D146）
   const ox = bx + (pw - PW * sc) / 2, oy = by + hdr, v = vT(f.T), amp = 0.12 * v, om = 4 + v * 0.25;
-  let sTop = Infinity;
-  ctx.fillStyle = C.part;
+  const PCOL = {s:C.partS, l:C.partL, g:C.partG};
   for (const p of parts){
     let x = p.x, y = p.y;
     if (p.ph === 's'){   // 固體：在晶格位置附近振動，振幅與頻率隨溫度
       const q = latt(p.i, L3);
       x = q.x + amp * Math.sin(vib * om + p.f1); y = q.y + amp * Math.sin(vib * om * 1.3 + p.f2);
-      sTop = Math.min(sTop, q.y);
     }
+    ctx.fillStyle = PCOL[p.ph];
     ctx.beginPath(); ctx.arc(ox + x * sc, oy + y * sc, PR * sc, 0, Math.PI * 2); ctx.fill();
   }
-  if (L3.ns > 0) tag(ctx, '冰的排列：示意', ox + PW * sc / 2, oy + (sTop - PR) * sc - 14 * U, {a:'center', c:C.t3});
-  if (L3.ng > 0) tag(ctx, '氣體間距未照比例', ox + PW * sc - 4, oy + 12 * U, {a:'right', c:C.t3});
-  if (!compact && L3.ns + L3.nl > 0){
-    txt(ctx, '固體、液體間距：', bx + 12, by + bh - 30 * U, {c:C.t3});
-    txt(ctx, '示意，已放大', bx + 12, by + bh - 14 * U, {c:C.t3});
-  }
-  if (state.lay.phase){
-    // 物態名稱（答案型）：放檢視框標題列右端；畫布窄到框寬被截時改放粒子區左上角
-    const nm = PHASE_NAME[f.seg];
-    ctx.font = font(700, 13);
-    const nw2 = ctx.measureText(nm).width;
-    if (bx + pw - 12 - nw2 > rEnd + 12) tag(ctx, nm, bx + pw - 12, ry, {a:'right', w:700, s:13, c:C.t1});
-    else tag(ctx, nm, bx + 12, oy + 12 * U, {w:700, s:13, c:C.t1});
-  }
+  // 「冰的排列：示意」「氣體間距未照比例」「固體、液體間距：示意，已放大」三句已刪（D75：對初學者是多餘的字）
   ctx.restore();
+}
+
+/* ── 熱脹冷縮（PROJECT_PLAN §2.14–§2.15） ──
+   搬自設計稿 design_handoff/熱學模擬 v2.dc.html：ellIn 第 311 行；initX、xSep、stepX、xgeo、drawX 第 527–580 行。
+   與稿不同處：圓孔（D138，稿是方孔）、滑桿連續（D141，稿是 5 檔）、刪檢視框標題與「氣體間距未照比例」（D142）、
+   液體色（D140）、資訊卡改用 HTML .infocard，檢視框依實測卡高讓位（稿寫死 150px）。
+   三器材低溫時等高 H0、同底線、同中心線（D135）；固體以方塊中心往四周長，液、氣往上長 */
+const X_RV = 52, X_NP = {l:28, g:8};   // 液、氣粒子區（放大圈內）半徑與粒子數，粒子空間單位
+const X_MASS = {s:'270', l:'80', g:'0.12'};   // 質量 g，不隨溫度變（D128），取自稿件 XMASS
+let xParts = [], xKey = '', xCardH = 0;
+// 粒子撞到橢圓邊界：拉回邊上並把速度沿法線反射
+function ellIn(p, a, b){
+  const q = (p.x / a) ** 2 + (p.y / b) ** 2; if (q <= 1) return;
+  const s = 1 / Math.sqrt(q); p.x *= s; p.y *= s;
+  let nx = p.x / (a * a), ny = p.y / (b * b); const m = Math.hypot(nx, ny) || 1; nx /= m; ny /= m;
+  const d = p.vx * nx + p.vy * ny; if (d > 0){ p.vx -= 2 * d * nx; p.vy -= 2 * d * ny; }
+}
+function initX(){
+  const {ph, hole} = state.x, rnd = () => Math.random() * Math.PI * 2;
+  if (ph === 's') xParts = xLattice(hole).map(q => ({x0:q.x * X_SP * PR, y0:q.y * X_SP * PR, f1:rnd(), f2:rnd()}));
+  else {
+    xParts = [];
+    for (let i = 0; i < X_NP[ph]; i++){
+      const a = rnd(), rr = (X_RV - PR) * Math.sqrt(Math.random()), t = rnd();
+      xParts.push({x:rr * Math.cos(a), y:rr * Math.sin(a), vx:Math.cos(t), vy:Math.sin(t)});
+    }
+    if (ph === 'l') xSep(xParts, X_RV - PR, X_RV - PR, 40);
+  }
+  xKey = ph + hole;
+}
+// 液體粒子互相推開、留在圈內
+function xSep(P, a, b, n){
+  for (let it = 0; it < n; it++){
+    for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++){
+      const p = P[i], q = P[j], dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy) || 0.01;
+      if (d < 2 * PR){ const m = (2 * PR - d) / 2; p.x -= dx / d * m; p.y -= dy / d * m; q.x += dx / d * m; q.y += dy / d * m; }
+    }
+    for (const p of P) ellIn(p, a, b);
+  }
+}
+// 固體只在晶格位置振動（畫的時候算）；液體方向一直亂轉；氣體自由飛行、等質量彈性碰撞
+function stepX(dt){
+  if (xKey !== state.x.ph + state.x.hole) initX();
+  const {ph, lv} = state.x; if (ph === 's') return;
+  const v = xSpeed(lv), a = X_RV * Math.sqrt(1 + xRatio(ph, lv)) - PR, P = xParts;
+  for (const p of P){
+    if (ph === 'l'){ const t = Math.atan2(p.vy, p.vx) + (Math.random() - 0.5) * 50 * dt; p.vx = Math.cos(t); p.vy = Math.sin(t); }
+    const s = Math.hypot(p.vx, p.vy) || 1;
+    p.x += p.vx / s * v * dt; p.y += p.vy / s * v * dt; ellIn(p, a, a);
+  }
+  if (ph === 'l'){ xSep(P, a, a, 2); return; }
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++){
+    const p = P[i], q = P[j], dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
+    if (d > 0 && d < 2 * PR){
+      const nx = dx / d, ny = dy / d, rel = (p.vx - q.vx) * nx + (p.vy - q.vy) * ny;
+      if (rel > 0){ p.vx -= rel * nx; p.vy -= rel * ny; q.vx += rel * nx; q.vy += rel * ny; }
+      const m = (2 * PR - d) / 2; p.x -= nx * m; p.y -= ny * m; q.x += nx * m; q.y += ny * m;
+    }
+  }
+}
+/* 版面：右上粒子檢視框、右下留給資訊卡（xCardH 實測），左邊器材區。
+   H0 由「最大膨脹率升到頂仍不碰畫布頂」與「固體最寬不出器材區」反推。檢視框不再有標題與底註（D142），上下只留 14px */
+function xGeo(W, H){
+  const R = X_RATE, rm = Math.max(R.s, R.l, R.g), vw = Math.max(200, Math.min(340, W * 0.34)), bx = W - vw - 16, by = 16;
+  const bh = Math.max(150, Math.min(vw * 1.05, H - by - (xCardH || 150) - 28)), zone = Math.max(160, bx - 36), cx = zone / 2 + 12, base = H - 36;
+  const H0 = Math.max(60, Math.min(320, (base - 54) / (1 + rm), zone * 0.74 / Math.sqrt(1 + R.s))), hdr = 14, ftr = 14;
+  const sc = Math.max(0.5, Math.min((vw - 28) / (2 * X_RV * Math.sqrt(1 + rm) * 1.04), (bh - hdr - ftr - 8) / (2 * X_RV * Math.sqrt(1 + rm)),
+    Math.min(vw - 28, bh - hdr - ftr - 8) / (X_N * X_SP * PR * Math.sqrt(1 + R.s) * 1.06)));
+  return {vw, bx, by, bh, zone, cx, base, H0, hdr, ftr, sc, rm};
+}
+function drawExpansion(g, W, H){
+  const x = state.x;
+  if (xKey !== x.ph + x.hole) initX();
+  const r = xRatio(x.ph, x.lv), G = xGeo(W, H), {cx, base, H0} = G, ink = C.t1, LD = [6, 4], TAU = Math.PI * 2;
+  g.fillStyle = '#FFFFFF'; g.fillRect(0, 0, W, H);
+  if (x.ph !== 's'){ g.strokeStyle = C.axis; g.lineWidth = 2; g.beginPath(); g.moveTo(12, base + 4); g.lineTo(cx + G.zone / 2 - 4, base + 4); g.stroke(); }
+  // 封底的管子（玻璃管、氣缸共用）：底部圓角、上端開口
+  const tube = (x0, x1, top) => { g.beginPath(); g.moveTo(x0, top); g.lineTo(x0, base - 6); g.quadraticCurveTo(x0, base, x0 + 6, base);
+    g.lineTo(x1 - 6, base); g.quadraticCurveTo(x1, base, x1, base - 6); g.lineTo(x1, top); };
+  const walls = (x0, x1, top) => { g.strokeStyle = C.wall; g.lineWidth = 3; tube(x0, x1, top); g.stroke();
+    g.beginPath(); g.moveTo(x0 - 5, top); g.lineTo(x0, top); g.moveTo(x1, top); g.lineTo(x1 + 5, top); g.stroke(); };
+  let ring = null, lead = null, oL, oR;
+  if (x.ph === 's'){
+    // 固體以方塊中心為基準往四周膨脹；孔與方塊同比例變大（D122、D138）
+    const k = Math.sqrt(1 + r), s = H0 * k, x0 = cx - s / 2, cy0 = base - H0 / 2, y0 = cy0 - s / 2, r0 = H0 / 6;
+    oL = x0; oR = x0 + s;
+    rrect(g, x0, y0, s, s, 6); g.fillStyle = C.metal; g.strokeStyle = C.wall; g.lineWidth = 2; g.fill(); g.stroke();
+    if (x.hole){ g.beginPath(); g.arc(cx, cy0, r0 * k, 0, TAU); g.fillStyle = '#FFFFFF'; g.fill(); g.stroke(); }
+    g.save(); g.setLineDash(LD); g.strokeStyle = ink; g.lineWidth = 2; rrect(g, cx - H0 / 2, base - H0, H0, H0, 6); g.stroke();
+    if (x.hole){ g.beginPath(); g.arc(cx, cy0, r0, 0, TAU); g.stroke(); }
+    g.restore();
+    // 固體不畫放大圈：引線從方塊右緣拉到檢視框，框裡是整塊樣品（D139）
+    lead = [[x0 + s, y0 + s * 0.12], [x0 + s, y0 + s * 0.88]];
+  } else if (x.ph === 'l'){
+    // 上下等粗、封底的細長玻璃管：沒有瓶身，液面升幅＝H0×體積增加率（D135）
+    const tw = Math.max(30, Math.min(44, H0 * 0.13)), x0 = cx - tw / 2, x1 = cx + tw / 2,
+          top = base - H0 * (1 + G.rm) - Math.min(30, H0 * 0.2), yl = base - H0 * (1 + r);
+    oL = x0; oR = x1;
+    g.save(); tube(x0, x1, top); g.closePath(); g.clip();
+    g.fillStyle = rgba(C.glass, 0.35); g.fillRect(x0, top, tw, base - top);
+    g.fillStyle = C.xLiq; g.fillRect(x0, yl, tw, base - yl); g.restore();
+    walls(x0, x1, top);
+    ring = {x:cx, y:base - H0 * (1 + r) / 2, rx:(tw / 2 - 7) * Math.sqrt(1 + r)};
+  } else {
+    // 直立氣缸＋可自由上下移動的活塞（壓力不變，D124）
+    const cw = Math.max(100, Math.min(170, H0 * 0.5)), x0 = cx - cw / 2, x1 = cx + cw / 2, pt = 16,
+          top = base - H0 * (1 + G.rm) - pt - 18, yp = base - H0 * (1 + r);
+    oL = x0; oR = x1;
+    g.save(); tube(x0, x1, top); g.closePath(); g.clip();
+    g.fillStyle = rgba(C.glass, 0.5); g.fillRect(x0, yp, cw, base - yp); g.restore();
+    rrect(g, x0 + 2, yp - pt, cw - 4, pt, 3); g.fillStyle = C.metal; g.strokeStyle = C.wall; g.lineWidth = 2; g.fill(); g.stroke();
+    g.lineWidth = 1.5; g.beginPath();
+    g.moveTo(x0 + 2, yp - pt + 5.5); g.lineTo(x1 - 2, yp - pt + 5.5); g.moveTo(x0 + 2, yp - pt + 10.5); g.lineTo(x1 - 2, yp - pt + 10.5); g.stroke();
+    walls(x0, x1, top);
+    g.save(); g.setLineDash(LD); g.strokeStyle = ink; g.lineWidth = 2; g.strokeRect(x0 + 2, base - H0 - pt, cw - 4, pt); g.restore();
+    ring = {x:cx, y:base - H0 * (1 + r) / 2, rx:Math.min(cw * 0.2, 30) * Math.sqrt(1 + r)};
+  }
+  // 低溫時的頂端：三態同一條高度，學生看頂端離它多遠（D126、D135）
+  dashLine(g, oL - 14, oR + 14, base - H0, ink, LD, 2);
+  txt(g, '低溫時', oL - 18, base - H0, {a:'right', c:C.t3});
+
+  // 放大圈（液、氣跟著材料一起長大，圈住的永遠是同一批粒子）或固體右緣 → 虛線引到檢視框
+  const {bx, by, bh, vw, hdr, ftr, sc} = G;
+  const L1 = ring ? [ring.x + ring.rx * 0.6, ring.y - ring.rx * 0.8] : lead[0],
+        L2 = ring ? [ring.x + ring.rx * 0.6, ring.y + ring.rx * 0.8] : lead[1];
+  g.save(); g.setLineDash([4, 4]); g.strokeStyle = C.axis; g.lineWidth = 1.5; g.beginPath();
+  g.moveTo(L1[0], L1[1]); g.lineTo(bx, by + 10); g.moveTo(L2[0], L2[1]); g.lineTo(bx, by + bh - 10); g.stroke(); g.restore();
+  if (ring){
+    g.beginPath(); g.arc(ring.x, ring.y, ring.rx, 0, TAU);
+    g.strokeStyle = '#FFFFFF'; g.lineWidth = 5; g.stroke(); g.strokeStyle = C.wall; g.lineWidth = 2.5; g.stroke();
+  }
+  rrect(g, bx, by, vw, bh, 10); g.fillStyle = '#FFFFFF'; g.strokeStyle = C.wall; g.lineWidth = 2; g.fill(); g.stroke();
+
+  const vx = bx + vw / 2, vy = by + hdr + (bh - hdr - ftr) / 2, v = xSpeed(x.lv), col = {s:C.partS, l:C.partL, g:C.partG}[x.ph];
+  const circ = (rad, dashed) => { g.save(); if (dashed) g.setLineDash(LD); g.strokeStyle = dashed ? ink : C.wall; g.lineWidth = dashed ? 2 : 2.5;
+    g.beginPath(); g.arc(vx, vy, rad, 0, TAU); g.stroke(); g.restore(); };
+  g.save(); rrect(g, bx + 2, by + 2, vw - 4, bh - 4, 8); g.clip();
+  if (x.ph === 's'){
+    // 檢視框＝整塊樣品：粒子數、大小固定，只有間距隨 k 放大；振幅壓小，讓粒子間的縫看得出來（D143）
+    const k = Math.sqrt(1 + r), S = X_N * X_SP * PR * sc, hr = S / 6, amp = 0.03 * v, om = 4 + v * 0.25;
+    g.save(); g.setLineDash(LD); g.strokeStyle = ink; g.lineWidth = 2; g.strokeRect(vx - S / 2, vy - S / 2, S, S); g.restore();
+    if (x.hole) circ(hr, true);
+    g.strokeStyle = C.wall; g.lineWidth = 2; g.strokeRect(vx - S * k / 2, vy - S * k / 2, S * k, S * k);
+    if (x.hole) circ(hr * k, false);
+    g.fillStyle = col;
+    for (const p of xParts){
+      const px = vx + (p.x0 * k + amp * Math.sin(vib * om + p.f1)) * sc, py = vy + (p.y0 * k + amp * Math.sin(vib * om * 1.3 + p.f2)) * sc;
+      g.beginPath(); g.arc(px, py, PR * sc, 0, TAU); g.fill();
+    }
+  } else {
+    g.fillStyle = col;
+    for (const p of xParts){ g.beginPath(); g.arc(vx + p.x * sc, vy + p.y * sc, PR * sc, 0, TAU); g.fill(); }
+    circ(X_RV * sc, true); circ(X_RV * Math.sqrt(1 + r) * sc, false);
+  }
+  g.restore();
 }
 
 /* ── 圖表 ──
    邊距只在 chartFrame() 算一次：繪圖與時間軸對齊（positionTimeline）共用，兩邊才不會各算各的 */
+let simDY = 0;   // 模擬畫布頂端比圖表畫布頂端低多少 px（fitAll 實測）；兩者同一列，正常為 0
 function chartFrame(W, H, k){
-  const Lm = Math.round(40 + 12 * U), R = 18;
-  // 下邊距要容得下「刻度數字＋軸標題」兩列，兩列都隨 U 放大；只加 12×U 在大屏上兩列會疊在一起
-  const Tp = Math.round((k === 'p' ? 22 : 28) + 12 * U), B = Math.round(4 + 42 * U);
-  return {Lm, R, Tp, B, pw:W - Lm - R, ph:H - Tp - B};
+  // 三態變化的左邊距要放得下「沸點 100」（D82）；時間軸對齊也讀這裡，會自動跟著走
+  const Lm = Math.round(k === 'p' ? 14 + 50 * U : 40 + 12 * U), R = 18, pw = W - Lm - R;
+  // 繪圖區下方要容得下「刻度數字＋軸標題」兩列，兩列都隨 U 放大；只加 12×U 在大屏上兩列會疊在一起
+  const B = Math.round(4 + 42 * U);
+  /* 熱平衡、比熱：縱軸兩端對齊左邊水槽刻度，同一條水平線上讀到的是同一個溫度（D66）。
+     單槽的 ΔT 軸從起始溫度 20 °C 起算，所以 ΔT＝0 對齊水槽的 20 °C、ΔT＝80 對齊 100 °C（D64）。
+     <900 時圖表是浮出面板、不和水槽並排，對齊沒有意義，退回填滿畫布 */
+  if (k !== 'p' && simW > 0 && !narrowMQ.matches){
+    const G = tankGeo(simW, simH), Tp = G.Y(100) + simDY, ph = G.Y(k === 's' ? T_START : 0) - G.Y(100);
+    if (ph >= 60 && Tp + ph + B <= H) return {Lm, R, Tp, pw, ph, xTitleY:Tp + ph + B - 13 * U, al:true};
+  }
+  const Tp = Math.round((k === 'p' ? 22 : 28) + 12 * U);
+  return {Lm, R, Tp, pw, ph:H - Tp - B, xTitleY:H - 13 * U};
 }
 function drawChart(){
   const ctx = chartCtx; if (!ctx || chW <= 0) return;
@@ -1111,34 +1611,56 @@ function drawChart(){
   }
   ctx.strokeStyle = C.axis; ctx.lineWidth = 2; ctx.beginPath();
   ctx.moveTo(f.Lm, f.Tp); ctx.lineTo(f.Lm, f.Tp + f.ph); ctx.lineTo(f.Lm + f.pw, f.Tp + f.ph); ctx.stroke();
+  const P = chartData(k);
   for (let x = 0; x <= o.xMax + 1e-9; x += o.xLab) txt(ctx, String(x), X(x), f.Tp + f.ph + 14 * U, {a:'center'});
-  for (let y = Math.ceil(o.yMin / yLab) * yLab; y <= o.yMax + 1e-9; y += yLab) txt(ctx, fmt(y, 0), f.Lm - 8, Y(y), {a:'right'});
+  // 刻度數字可被 chartData 換掉（熔點、沸點，D82）：換掉的那格用粗體深色。
+  // 0 與 100 同時是 20 與 50 的倍數，寬窄兩種刻度間距都會走到，不必另外補標
+  for (let y = Math.ceil(o.yMin / yLab) * yLab; y <= o.yMax + 1e-9; y += yLab){
+    const s = P.yLabels[Math.round(y)];
+    txt(ctx, s || fmt(y, DEC.temp), f.Lm - 8, Y(y), s ? {a:'right', w:700, c:C.t1} : {a:'right'});
+  }
   txt(ctx, o.yTitle, 8, Math.max(11, f.Tp - 18 * U), {w:700, s:13});
-  txt(ctx, o.xTitle, f.Lm + f.pw / 2, chH - 13 * U, {a:'center', w:700, s:13});
+  txt(ctx, o.xTitle, f.Lm + f.pw / 2, f.xTitleY, {a:'center', w:700, s:13});
   if (o.note) txt(ctx, o.note, f.Lm + f.pw, Math.max(11, f.Tp - 18 * U), {a:'right', c:C.t3});
 
-  const P = chartData(k);
+  // 液面虛線的圖表段（D106）：從畫布左緣接到目前那一點，模擬畫布那段在 levelLink()。空心圓的白底蓋住線頭
+  if (f.al) for (const s of P.series){
+    const m = s.markAt || (s.mark && s.pts[s.pts.length - 1]);
+    if (m) dashLine(ctx, 0, X(m[0]), Y(m[1]), C.axis, [3, 4], 1.5);
+  }
   ctx.save(); ctx.beginPath(); ctx.rect(f.Lm, f.Tp - 2, f.pw + 2, f.ph + 4); ctx.clip();
   for (const h of P.hl) dashLine(ctx, f.Lm, f.Lm + f.pw, Y(h.y), h.c, h.d, 1.5);
   for (const s of P.series){
     if (s.pts.length < 2) continue;
-    ctx.strokeStyle = s.color; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    if (s.segCols){
+      /* 加熱曲線逐段上色（D77）：第 j 段＝p3 的第 j 段。共存平台兩色交替虛線——
+         先畫第一色實線，再用第二色畫間隔一半的虛線蓋上去，交界不會露出白底 */
+      ctx.lineCap = 'butt';
+      for (let j = 0; j + 1 < s.pts.length; j++){
+        const a = s.pts[j], b = s.pts[j + 1], cols = s.segCols[j];
+        ctx.save(); ctx.strokeStyle = cols[0];
+        ctx.beginPath(); ctx.moveTo(X(a[0]), Y(a[1])); ctx.lineTo(X(b[0]), Y(b[1])); ctx.stroke();
+        if (cols[1]){
+          ctx.setLineDash([8, 8]); ctx.strokeStyle = cols[1];
+          ctx.beginPath(); ctx.moveTo(X(a[0]), Y(a[1])); ctx.lineTo(X(b[0]), Y(b[1])); ctx.stroke();
+        }
+        ctx.restore();
+      }
+      continue;
+    }
+    ctx.strokeStyle = s.color;
     ctx.beginPath(); s.pts.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.stroke();
   }
   ctx.restore();
-  // 參考線標示：兩條靠太近時上下錯開
-  const hy = P.hl.map(h => Y(h.y) - 12 * U);
-  if (hy.length === 2 && Math.abs(hy[0] - hy[1]) < 22 * U){
-    const m = (hy[0] + hy[1]) / 2, up = hy[0] <= hy[1] ? 0 : 1;
-    hy[up] = m - 11 * U; hy[1 - up] = m + 11 * U;
-  }
-  P.hl.forEach((h, i) => tag(ctx, h.s, f.Lm + f.pw - 4, hy[i], {a:'right', c:h.c}));
+  // 參考線標示：每頁至多一條參考線（平衡溫度，D113），不必處理兩條相疊
+  for (const h of P.hl) tag(ctx, h.s, f.Lm + f.pw - 4, Y(h.y) - 12 * U, {a:'right', c:h.c});
   for (const b of P.bands) tag(ctx, b.s, X(b.x), Y(b.y) - (b.up ?? 16) * U, {a:b.a || 'center', w:700, c:C.t1});
   // 目前時刻的空心圓
   for (const s of P.series){
     const m = s.markAt || (s.mark && s.pts[s.pts.length - 1]);
     if (!m) continue;
-    ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = s.color; ctx.lineWidth = 2.5;
+    ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = s.markColor || s.color; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(X(m[0]), Y(m[1]), 5.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
   // 曲線末端的名稱：A／B 用徽章（D37）；單槽疊線用「短線段＋名稱」，彼此上下至少隔 20px
@@ -1168,16 +1690,15 @@ function sample(fn, t, n){
 }
 /* 各頁圖表的內容：hl＝答案型參考線、bands＝物態名稱、series＝曲線 */
 function chartData(k){
-  const L = state.lay, out = {hl:[], bands:[], series:[]};
+  const L = state.lay, out = {hl:[], bands:[], series:[], yLabels:{}};
   if (k === 't1'){
     const o = state.t1, t = state.time.t1, r = t1At(o, t);
-    if (L.te1) out.hl.push({y:r.Te, s:'平衡溫度 ' + fmt(r.Te, 0) + ' °C', c:C.t1, d:[3, 4]});
+    if (L.te1) out.hl.push({y:r.Te, s:'平衡溫度 ' + fmt(r.Te, DEC.temp) + ' °C', c:C.t1, d:[3, 4]});
     out.series.push({color:C.t2, badge:true, mark:true, label:'A', dy:r.D >= 0 ? 10 : -10, pts:sample(x => t1At(o, x).TA, t, 20)});
     out.series.push({color:C.t2, badge:true, mark:true, label:'B', dy:r.D >= 0 ? -10 : 10, pts:sample(x => t1At(o, x).TB, t, 20)});
   } else if (k === 'd'){
-    const o = state.d, t = state.time.d, r = dAt(o, t), avg = (o.A.T0 + o.B.T0) / 2;
-    if (L.avg) out.hl.push({y:avg, s:'兩初溫平均 ' + fmt(avg, 0) + ' °C', c:C.t2, d:[8, 5]});
-    if (L.te2) out.hl.push({y:r.Te, s:'平衡溫度 ' + fmt(r.Te, 0) + ' °C', c:C.t1, d:[3, 4]});
+    const o = state.d, t = state.time.d, r = dAt(o, t);
+    if (L.te2) out.hl.push({y:r.Te, s:'平衡溫度 ' + fmt(r.Te, DEC.temp) + ' °C', c:C.t1, d:[3, 4]});
     out.series.push({color:C.t2, badge:true, mark:true, label:'A', dy:r.D >= 0 ? 10 : -10, pts:sample(x => dAt(o, x).TA, t, 20)});
     out.series.push({color:C.t2, badge:true, mark:true, label:'B', dy:r.D >= 0 ? -10 : 10, pts:sample(x => dAt(o, x).TB, t, 20)});
   } else if (k === 's'){
@@ -1192,7 +1713,15 @@ function chartData(k){
     const t = state.time.p, R = state.reachedP, pts = [[0, P3T[0]]];
     for (let i = 1; i < P3B.length && P3B[i] < R; i++) pts.push([P3B[i], P3T[i]]);
     if (R > 0) pts.push([R, p3(R).T]);
-    out.series.push({color:C.pri, pts, markAt:[t, p3(t).T]});
+    const ft = p3(t);
+    // 空心圓用目前物態的顏色，與放大檢視標題列的圓同一個記號
+    out.series.push({color:C.pri, segCols:PHASE_COL, pts, markAt:[t, ft.T], markColor:PHASE_COL[ft.seg][0]});
+    /* 熔點、沸點（D74 答案型、D82 標在溫度軸上）：把縱軸刻度「0」「100」換成「熔點 0」「沸點 100」，
+       曲線跑到該平台才換（不劇透） */
+    if (L.mpbp){
+      if (R > P3B[1] + 0.05) out.yLabels[0] = '熔點 0';
+      if (R > P3B[3] + 0.05) out.yLabels[100] = '沸點 100';
+    }
     if (L.phase){
       /* 跑到該段才出現，而且貼著已畫出的線，不跑到曲線前面（不劇透）：
          平台段靠段首左對齊；液態斜線段跟著已畫部分的中點走，標在線的左上方。
@@ -1211,14 +1740,30 @@ function updateLive(){
   const k = timeKey();
   if (k === 's'){
     const t = state.time.s, cap = maxT('s');
-    document.getElementById('sT').textContent = fmt(t, 1);
     document.getElementById('sH').textContent = String(Math.round(POWER * t));
     // 只有「提早到 100 °C」才提示；10 分鐘跑滿是正常結束
     document.getElementById('sCap').hidden = !(cap < MAX_T.s && t >= cap - 1e-6);
   } else document.getElementById('sCap').hidden = true;
+  if (k === 't1' || k === 'd'){
+    const t = state.time[k], r = k === 't1' ? t1At(state.t1, t) : dAt(state.d, t);
+    $('eD').textContent = fmt(Math.abs(r.D), DEC.temp);
+    $('eEq').textContent = Math.abs(r.D) < EQ_EPS ? '達熱平衡' : '尚未平衡';
+  }
   if (k === 'p'){
-    const el = document.getElementById('tl');
-    el.value = state.time.p; refreshFill(el);
+    const el = document.getElementById('tl'), t = state.time.p;
+    el.value = t; refreshFill(el);
+    $('tlNow').textContent = fmt(t, DEC.time);
+    // 軌道已填色的那段，刻度線改成白色（同運動學 .passed）
+    for (const tk of document.querySelectorAll('#tlTicks i')) tk.classList.toggle('passed', +tk.dataset.v <= t && t > 0);
+    const f = p3(t);
+    $('pT').textContent = fmt(f.T, DEC.temp);
+    $('pPh').textContent = PHASE_NAME[f.seg];
+  }
+  if (k === 'x'){
+    const r = xRatio(state.x.ph, state.x.lv);
+    $('xVol').textContent = (100 * (1 + r)).toFixed(DEC.pct);
+    $('xPct').textContent = '+' + (r * 100).toFixed(DEC.pct);
+    $('xMass').textContent = X_MASS[state.x.ph];
   }
 }
 function draw(){ drawSim(); drawChart(); updateLive(); }
@@ -1248,15 +1793,23 @@ function syncControls(){
   const s = state, page = pageKey(), k = timeKey();
   $('app').dataset.page = page;
   for (const t of document.querySelectorAll('.navtab')) t.setAttribute('aria-selected', String(+t.dataset.tab === s.tab));
-  $('grpT1').hidden = s.tab !== 0; $('grpT2').hidden = s.tab !== 1; $('grpT3').hidden = s.tab !== 2;
+  $('grpT1').hidden = s.tab !== 0; $('grpT2').hidden = s.tab !== 1; $('grpT3').hidden = s.tab !== 2; $('grpT4').hidden = s.tab !== 3;
+  // 熱脹冷縮
+  setPressed('xPh', s.x.ph);
+  $('xLv').value = s.x.lv; refreshFill($('xLv'));
+  $('chkHole').hidden = s.x.ph !== 's';   // 挖孔只有固態有（D122）
+  $('xHole').checked = s.x.hole;
+  // 抽屜照樣顯示，熱脹冷縮頁沒有東西可播：三鈕留在原位變灰（D137）
+  const noPlay = k === 'x';
+  $('btnPlay').disabled = noPlay; $('btnReset').disabled = noPlay;
+  for (const b of document.querySelectorAll('#segSpeed button')) b.disabled = noPlay;
+  document.querySelector('.speed').setAttribute('aria-disabled', String(noPlay));
   // 熱平衡
   setSlider('t1A', s.t1.A); setSlider('t1B', s.t1.B); setPressed('t1K', s.t1.k);
   // 比熱
   setPressed('segMode', s.mode);
   $('grpSingle').hidden = s.mode !== 'single'; $('grpDouble').hidden = s.mode !== 'double';
-  $('cardDLayers').hidden = s.mode !== 'double';
-  const preset = Object.keys(PRESETS).find(p => PRESETS[p][0] === s.s.mat && PRESETS[p][1] === s.s.mass) || '';
-  setPressed('segPreset', preset);
+  $('chkTe2').hidden = s.mode !== 'double';   // 單獨加熱沒有平衡溫度可顯示
   setPressed('sMat', s.s.mat); setStepper('sMass', s.s.mass);
   for (const id of ['A', 'B']){
     const o = s.d[id];
@@ -1265,14 +1818,19 @@ function syncControls(){
   for (const c of document.querySelectorAll('input[data-lay]')) c.checked = s.lay[c.dataset.lay];
   setPressed('segSpeed', s.speed);
   // 畫布上的 HTML 圖層與抽屜時間軸
-  $('sReadout').hidden = k !== 's';
-  $('tlCell').hidden = k !== 'p';
-  for (const p of document.querySelectorAll('#helpModal p[data-for]'))
-    p.hidden = !p.dataset.for.split(' ').includes(page);
+  $('infoCard').hidden = false;   // 四頁都有資訊卡（三態變化 D144）
+  $('modelNote').hidden = k === 'p' || k === 'x';
+  $('modelNote').classList.toggle('one', k === 't1');   // 熱平衡頁只留「高度＝溫度」（D100）
+  for (const g of document.querySelectorAll('#infoCard .g[data-for]')) g.hidden = !g.dataset.for.split(' ').includes(k);
+  if (!s.lay.phase) $('pPhG').hidden = true;   // 狀態跟著「顯示物態名稱」（D145）
+  $('tlCell').classList.toggle('off', k !== 'p');   // 佔位不顯示：三頁抽屜同高（D89）
+  // 說明彈窗改成每頁一份 .help-page，切換放在打開的時候做（2026-10-08 第三輪 C8），這裡原本的 p[data-for] 篩選移除
+  syncPlayBtn();   // 換頁、改條件後這一頁可能剛好在終點（B17）
   dirty = true;
 }
 
-/* 改變物理條件 → 這一頁回到起點（時間歸零、停止播放），避免舊曲線與新條件混在一起。
+/* 改變物理條件 → 這一頁回到起點（時間歸零），避免舊曲線與新條件混在一起；原本在播就接著播
+   （播放中改參數＝回到起點並繼續播，DESIGN_SPEC 第 1 節「兩種重設」，2026-10-08 第三輪 C4，**A**「Q 全照建議」→ Q1；原本是暫停並歸零）。
    點到目前已選的那顆不算改變：否則誤觸一下，跑到一半的結果就被清掉。
    單槽換材料或質量時，前一次加熱的線留在圖上當對照（D50） */
 function changeParam(k, fn){
@@ -1281,7 +1839,9 @@ function changeParam(k, fn){
   fn();
   if (snap() === before) return;
   if (k === 's' && prev.t > 0.01) state.s.hist = [...state.s.hist, prev].slice(-HIST_MAX);
+  const resume = running;
   pause(); seek(0, k); syncControls();
+  if (resume) play();
 }
 
 function onGroup(id, fn){
@@ -1289,12 +1849,26 @@ function onGroup(id, fn){
     const b = e.target.closest('button[data-v]'); if (b) fn(b.dataset.v);
   });
 }
+/* 步進器端鈕：按一下走一步；按住 0.4 秒後每 0.08 秒連續走（2026-10-08 第三輪 B22，逐字搬 sound-sim/index.html:1782-1797，
+   只把 stepOnce 換成本模擬的質量夾值；原本只有單擊）。
+   用 pointerdown 而不是 click：click 要等放開才觸發，按住連續會多走一步。鍵盤（Enter／Space）走 click，detail 為 0 */
 function onStepper(id, get, set){
-  $(id).addEventListener('click', e => {
-    const b = e.target.closest('button[data-d]'); if (!b || b.disabled) return;
-    const m = Math.max(MASS_MIN, Math.min(MASS_MAX, get() + +b.dataset.d * MASS_STEP));
+  let holdT = 0, repT = 0;
+  const stopHold = () => { clearTimeout(holdT); clearInterval(repT); holdT = repT = 0; };
+  const stepOnce = (d) => {
+    const m = Math.max(MASS_MIN, Math.min(MASS_MAX, get() + d * MASS_STEP));
     if (m !== get()) set(m);
-  });
+  };
+  for (const b of $(id).querySelectorAll('button[data-d]')){
+    const d = +b.dataset.d;
+    b.addEventListener('pointerdown', (e) => {
+      if (b.disabled) return;
+      e.preventDefault(); stepOnce(d);
+      holdT = setTimeout(() => { repT = setInterval(() => { if (b.disabled) stopHold(); else stepOnce(d); }, 80); }, 400);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => b.addEventListener(ev, stopHold));
+    b.addEventListener('click', (e) => { if (e.detail === 0 && !b.disabled) stepOnce(d); });
+  }
 }
 function onSlider(id, set){
   $(id).addEventListener('input', e => set(+e.target.value));
@@ -1306,7 +1880,6 @@ onSlider('t1B', v => changeParam('t1', () => { state.t1.B = v; }));
 onGroup('t1K', v => changeParam('t1', () => { state.t1.k = v; }));
 // 比熱：模式切換只換畫面，兩種模式各自保留時間與條件
 onGroup('segMode', v => { pause(); state.mode = v; syncControls(); fitAll(); });
-onGroup('segPreset', v => changeParam('s', () => { state.s.mat = PRESETS[v][0]; state.s.mass = PRESETS[v][1]; }));
 onGroup('sMat', v => changeParam('s', () => { state.s.mat = v; }));
 onStepper('sMass', () => state.s.mass, m => changeParam('s', () => { state.s.mass = m; }));
 for (const id of ['A', 'B']){
@@ -1316,16 +1889,28 @@ for (const id of ['A', 'B']){
 }
 // 顯示圖層：只改畫面，不動時間
 for (const c of document.querySelectorAll('input[data-lay]'))
-  c.addEventListener('change', e => { state.lay[e.target.dataset.lay] = e.target.checked; dirty = true; });
+  c.addEventListener('change', e => {
+    const k = e.target.dataset.lay;
+    state.lay[k] = e.target.checked;
+    // 能量符號關掉期間塊數沒在更新；重新打開時從目前的塊數就位，不補飛關掉那段的塊
+    if (k === 'chunks') for (const p in chunkAnim) chunkAnim[p] = null;
+    syncControls();   // 熱平衡與比熱各有一顆「顯示能量符號」，指向同一個狀態，另一顆要跟著勾
+  });
 
 onGroup('segSpeed', v => { state.speed = +v; syncControls(); });
 
-// 時間軸（只有熱與粒子頁）：拖曳＝回看，一律走 seek()
+// 熱脹冷縮：切換物態保留滑桿位置（C49）；換物態或挖孔時粒子重排（stepX／drawExpansion 比對 xKey）
+onGroup('xPh', v => { state.x.ph = v; syncControls(); fitAll(); });
+$('xLv').addEventListener('input', e => { state.x.lv = +e.target.value; refreshFill(e.target); dirty = true; });
+$('xHole').addEventListener('change', e => { state.x.hole = e.target.checked; dirty = true; });
+
+// 時間軸（只有三態變化頁）：拖曳＝回看，一律走 seek()
 $('tl').addEventListener('input', e => {
   pause();
   seek(+e.target.value, 'p');
   if (+e.target.value > MAX_T.p){ e.target.value = state.time.p; }   // 0–40 軸、36.98 之後拖不過去
   refreshFill(e.target);
+  syncPlayBtn();   // 拖到終點時顯示「重新播放」（B17）
 });
 
 /* ═══ 6. 動畫迴圈（DEV_SPEC 6.2 骨架）：迴圈常駐，只有 dirty 或播放中才重繪 ═══ */
@@ -1339,8 +1924,11 @@ function loop(ts){
     chev += dt * state.speed * chevV;
     if (state.time[k] >= maxT(k) - 1e-9) pause();
   }
-  // 熱與粒子頁：暫停時粒子照樣運動（D55），所以每幀都要推進與重繪
+  // 三態變化頁：暫停時粒子照樣運動（D55），所以每幀都要推進與重繪
   if (k === 'p'){ vib += dt; stepParts(dt); dirty = true; }
+  if (k === 'x'){ vib += dt; stepX(dt); dirty = true; }   // 熱脹冷縮：粒子一直在動，沒有播放與否之分
+  // 能量塊一直在亂飄（D95）：打開「顯示能量符號」時（D112），熱平衡與比熱兩頁每幀重畫
+  if (state.lay.chunks && k !== 'p') dirty = true;
   if (dirty){ dirty = false; draw(); }
   requestAnimationFrame(loop);
 }
@@ -1349,13 +1937,19 @@ function play(){
   const k = timeKey();
   if (state.time[k] >= maxT(k) - 1e-9) restartRun(k);   // 跑完再按播放＝從頭再跑一次
   running = true; last = performance.now();
-  $('btnPlay').querySelector('i').className = 'fa-solid fa-pause';
-  $('btnPlay').setAttribute('aria-label', '暫停');
+  syncPlayBtn();
 }
 function pause(){
   running = false;
-  $('btnPlay').querySelector('i').className = 'fa-solid fa-play';
-  $('btnPlay').setAttribute('aria-label', '播放');
+  syncPlayBtn();
+}
+/* 播到終點時轉成「重新播放」，不留一顆看起來還能「播放」的鈕（2026-10-08 第三輪 B17，比照 motion-graphs-sim 的 syncPlayBtn()、
+   optics-sim:3858-3862；原本播完仍是 ▶）。熱脹冷縮沒有時間，那一頁三鈕本來就停用 */
+function syncPlayBtn(){
+  const k = timeKey();
+  const atEnd = !running && k !== 'x' && state.time[k] >= maxT(k) - 1e-9;
+  $('btnPlay').querySelector('i').className = 'fa-solid ' + (atEnd ? 'fa-rotate-left' : running ? 'fa-pause' : 'fa-play');
+  $('btnPlay').setAttribute('aria-label', atEnd ? '重新播放' : running ? '暫停' : '播放');
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden){ wasRunning = running; pause(); }
@@ -1368,9 +1962,11 @@ $('btnPlay').addEventListener('click', () => running ? pause() : play());
 function resetRun(){
   pause();
   restartRun(timeKey());
+  syncPlayBtn();   // 播完後按 ↺：時間歸零了，「重新播放」要變回 ▶
 }
-// 時間歸零；熱與粒子頁連同「已跑過的曲線」與粒子排列一起收回
+// 時間歸零；三態變化頁連同「已跑過的曲線」與粒子排列一起收回
 function restartRun(k){
+  if (k === 'x') return;   // 熱脹冷縮沒有時間可歸零（「重設全部」從這裡經過）
   if (k === 'p') state.reachedP = 0;
   seek(0, k);
   if (k === 'p') syncParts(true);
@@ -1456,23 +2052,94 @@ const narrowMQ = matchMedia('(max-width:899px)');
    原生滑桿的把手中心離兩端各 THUMB/2，所以滑桿左緣＝X(0)−12、寬＝(X(40)−X(0))＋24。
    用實測的 client 座標算，不靠 CSS 欄寬推：抽屜比 main 多 1px 邊框，推算會差半格 */
 function positionTimeline(){
-  const cell = $('tlCell'), inp = $('tl');
-  if (cell.hidden) return;
+  const cell = $('tlCell'), body = $('tlBody');
+  // 其他頁只佔位（高度不隨左右位置變），不必對齊別頁的圖表
+  if (cell.classList.contains('off')) return;
   const cr = cell.getBoundingClientRect(), chr = $('chartCanvas').getBoundingClientRect();
   if (narrowMQ.matches || chr.width <= 0){
-    inp.style.left = '20px'; inp.style.width = 'calc(100% - 40px)';
+    body.style.marginLeft = '20px'; body.style.width = 'calc(100% - 40px)';
     return;
   }
   const f = chartFrame(chr.width, chr.height, 'p');
   const x0 = chr.left + f.Lm, x1 = chr.left + f.Lm + f.pw;
-  inp.style.left = (x0 - cr.left - THUMB / 2) + 'px';
-  inp.style.width = (x1 - x0 + THUMB) + 'px';
+  body.style.marginLeft = (x0 - cr.left - THUMB / 2) + 'px';
+  body.style.width = (x1 - x0 + THUMB) + 'px';
+}
+// 刻度線與數字每 5 分一格，和圖表 t 軸的刻度同一組；36.98 分之後標成跑不到（D73）
+(function buildTimelineMarks(){
+  const xMax = CHART.p.xMax;
+  for (let v = 0; v <= xMax; v += CHART.p.xLab){
+    const pct = v / xMax * 100 + '%';
+    const tk = document.createElement('i'); tk.style.left = pct; tk.dataset.v = v; $('tlTicks').append(tk);
+    const mk = document.createElement('span'); mk.style.left = pct;
+    mk.textContent = v === 0 || v === xMax ? v + ' 分' : String(v); $('tlMarks').append(mk);
+  }
+  $('tlBlocked').style.width = `calc((100% - ${THUMB}px) * ${(xMax - MAX_T.p) / xMax})`;
+})();
+/* 資訊卡（D103）：寬版放右欄底部，左右、下緣各內縮 12px，寬度佔滿右欄。
+   卡頂不得高過圖表的橫軸刻度數字（可以蓋到軸標題），擺不下就不顯示——蓋到圖表更糟。
+   窄版：單槽放模擬區左下、寬度跟著內容（C34）；熱平衡、雙槽的左下是接觸示意，不放 */
+function placeCards(){
+  const el = $('infoCard'); if (el.hidden) return;
+  const k = timeKey(), mr = document.querySelector('main').getBoundingClientRect();
+  el.style.visibility = '';
+  // 熱脹冷縮沒有右欄：卡放畫布右下、內縮 16px（照設計稿 v2）；寬窄版相同。粒子檢視框讀 xCardH 讓位
+  // 用 right／bottom 定位：拖滑桿時「+0.0」變「+30.0」卡會變寬，往左長才不會擠出右緣
+  if (k === 'x'){
+    const sr = $('stageWrap').getBoundingClientRect();
+    el.style.width = ''; el.style.minWidth = ''; el.style.left = 'auto'; el.style.top = 'auto';
+    el.style.right = (mr.right - sr.right + 16) + 'px';
+    el.style.bottom = (mr.bottom - sr.bottom + 16) + 'px';
+    xCardH = el.offsetHeight;
+    return;
+  }
+  el.style.right = '';
+  /* 三態變化：模擬區左下、內縮 12px（D144），寬窄版相同。卡寬固定成最寬內容（−20 °C、液氣共存、狀態列打開），
+     讀數變化或開關狀態時卡不會忽寬忽窄，器材讓位的寬度也不會跟著跳（D147） */
+  if (k === 'p'){
+    const sr = $('stageWrap').getBoundingClientRect(), g = $('pPhG'), t0 = $('pT').textContent, p0 = $('pPh').textContent, h0 = g.hidden;
+    el.style.minWidth = ''; el.style.width = ''; el.style.top = 'auto';
+    $('pT').textContent = '−20'; $('pPh').textContent = '液氣共存'; g.hidden = false;
+    const w = el.offsetWidth;
+    $('pT').textContent = t0; $('pPh').textContent = p0; g.hidden = h0;
+    el.style.minWidth = w + 'px';
+    el.style.left = (sr.left - mr.left + 12) + 'px';
+    el.style.bottom = (mr.bottom - sr.bottom + 12) + 'px';
+    pCardR = 12 + w;
+    return;
+  }
+  el.style.bottom = ''; el.style.minWidth = '';
+  if (narrowMQ.matches){
+    if (k !== 's'){ el.style.visibility = 'hidden'; return; }
+    const sr = $('stageWrap').getBoundingClientRect();
+    el.style.left = (sr.left - mr.left + 10) + 'px';
+    el.style.width = '';
+    el.style.top = (sr.bottom - mr.top - 10 - el.offsetHeight) + 'px';
+    return;
+  }
+  const wr = $('chartWrap').getBoundingClientRect(), cr = $('chartCanvas').getBoundingClientRect(), f = chartFrame(cr.width, cr.height, k);
+  el.style.left = (wr.left - mr.left + 12) + 'px';
+  el.style.width = (wr.width - 24) + 'px';
+  const top = wr.bottom - mr.top - 12 - el.offsetHeight, minTop = cr.top - mr.top + f.Tp + f.ph + 24 * U;
+  if (top < minTop - 0.5){ el.style.visibility = 'hidden'; return; }
+  el.style.top = top + 'px';
 }
 function fitAll(){
   applyScale();
   const a = fitCanvas($('simCanvas'));   simCtx = a.ctx;   simW = a.w; simH = a.h;
   const b = fitCanvas($('chartCanvas')); chartCtx = b.ctx; chW = b.w;  chH = b.h;
+  simDY = $('simCanvas').getBoundingClientRect().top - $('chartCanvas').getBoundingClientRect().top;
+  /* 左下說明卡：tankGeo 照「三行版」的高度讓位（熱平衡頁暫時拿掉 .one 量一次，同步量完不會閃），
+     寬度兩版相同（.full 收成 0 高仍佔寬）。卡的下緣貼在接觸示意分隔線上方 4px */
+  const mn = $('modelNote');
+  if (mn.hidden) noteH = 0;
+  else {
+    const one = mn.classList.contains('one');
+    mn.classList.remove('one'); noteH = mn.offsetHeight; mn.classList.toggle('one', one);
+    mn.style.top = (Math.round(simH * 0.75) - 4 - mn.offsetHeight) + 'px';   // 0.75＝tankGeo 的 stripTop
+  }
   positionTimeline();
+  placeCards();
   dirty = true;
 }
 const ro = new ResizeObserver(fitAll);
@@ -1541,16 +2208,23 @@ if (appEl.requestFullscreen || appEl.webkitRequestFullscreen){
   for (const ev of ['fullscreenchange', 'webkitfullscreenchange'])
     document.addEventListener(ev, syncFullBtn);
   syncFullBtn();
-} else fullBtn.style.display = 'none';
+} else fullBtn.hidden = true;   // 切換一律用 hidden（DEV_SPEC 5.5，2026-10-08 第三輪 G6，同 template :1176；原本是 style.display）
 
-// 說明彈窗：打開時停止播放
-$('btnHelp').addEventListener('click', () => { pause(); $('helpModal').classList.add('open'); });
+// 說明彈窗：每個分頁一份，打開時只顯示目前這一頁的（2026-10-08 第三輪 C8，同 _shared/template/index.html:1180-1183，
+// 本模擬的分頁編號是 state.tab）。打開說明**不暫停**播放（C7，跟模板；原本會停）；關的方式有關閉鈕、點背景、Esc
+$('btnHelp').addEventListener('click', () => {
+  for (const p of document.querySelectorAll('#helpModal .help-page')) p.hidden = +p.dataset.screen !== state.tab;
+  $('helpModal').classList.add('open');
+});
 $('btnCloseHelp').addEventListener('click', () => $('helpModal').classList.remove('open'));
 $('helpModal').addEventListener('click', e => {
   if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
 });
+// Esc 關說明彈窗（2026-10-08 第三輪 C6，同 template :801-806）
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') $('helpModal').classList.remove('open');
+});
 
-$('sPower').textContent = String(POWER);
 initParts();
 syncControls();
 fitAll();
